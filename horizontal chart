@@ -1,0 +1,560 @@
+import 'package:client/Screens/Farmer/profile_screen.dart';
+import 'package:client/global/colortheme.dart';
+import 'package:flutter/material.dart';
+
+class FarmerHomeScreen extends StatelessWidget {
+  FarmerHomeScreen({super.key});
+
+  // Historical monthly demand data (Top crops for each month)
+  final Map<int, Map<String, double>> historicalMonthlyDemand = {
+    1: {'Carrots': 0.50, 'Tomatoes': 0.30, 'Onions': 0.20}, // Jan
+    2: {'Tomatoes': 0.55, 'Peppers': 0.25, 'Carrots': 0.20}, // Feb
+    3: {'Spinach': 0.40, 'Tomatoes': 0.35, 'Peppers': 0.25}, // Mar
+    4: {'Potatoes': 0.60, 'Onions': 0.25, 'Carrots': 0.15}, // Apr
+    5: {'Cucumbers': 0.45, 'Tomatoes': 0.30, 'Spinach': 0.25}, // May
+    6: {'Peppers': 0.50, 'Carrots': 0.30, 'Tomatoes': 0.20}, // Jun
+    7: {'Tomatoes': 0.60, 'Onions': 0.25, 'Peppers': 0.15}, // Jul
+    8: {'Carrots': 0.55, 'Spinach': 0.25, 'Potatoes': 0.20}, // Aug
+    9: {'Onions': 0.50, 'Tomatoes': 0.30, 'Cucumbers': 0.20}, // Sep
+    10: {'Potatoes': 0.45, 'Peppers': 0.35, 'Tomatoes': 0.20}, // Oct
+    11: {'Spinach': 0.60, 'Carrots': 0.25, 'Onions': 0.15}, // Nov
+    12: {'Tomatoes': 0.50, 'Potatoes': 0.30, 'Carrots': 0.20}, // Dec
+  };
+
+  final List<String> monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+
+  Map<String, double> get _currentMonthDemand {
+    int month = DateTime.now().month;
+    return historicalMonthlyDemand[month] ??
+        historicalMonthlyDemand[2]!; // Default to Feb
+  }
+
+  String get _currentMonthName => monthNames[DateTime.now().month - 1];
+
+  String get _topSuggestedCrop {
+    var demand = _currentMonthDemand;
+    return demand.entries.first.key;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const FarmerProfileScreen(),
+                        ),
+                      );
+                    },
+                    child: CircleAvatar(
+                      radius: 28,
+                      backgroundImage: const NetworkImage(
+                        "https://randomuser.me/api/portraits/men/32.jpg",
+                      ),
+                      backgroundColor: AppColors.farmerColor.withOpacity(0.2),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Welcome back,",
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const Text(
+                        "Thiru",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () {},
+                    icon: Stack(
+                      children: [
+                        Icon(
+                          Icons.notifications_outlined,
+                          size: 28,
+                          color: AppColors.textPrimary,
+                        ),
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Text(
+                              "3",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Stats Cards
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatCard(
+                      Icons.grass_rounded,
+                      AppColors.primaryGreen,
+                      "AVAILABLE",
+                      "12 Items",
+                      "+2% vs last week",
+                      true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      Icons.local_shipping_outlined,
+                      Colors.orange,
+                      "TOTAL SOLD",
+                      "1.2 Tons",
+                      "+5.4%",
+                      true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatCard(
+                      Icons.account_balance_wallet_outlined,
+                      Colors.green,
+                      "INCOME",
+                      "₹"
+                          "450.00",
+                      "+12% Today",
+                      true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      Icons.pending_actions_outlined,
+                      Colors.redAccent,
+                      "PENDING",
+                      "₹"
+                          "1,200",
+                      "3 Invoices",
+                      false,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+
+              // Predictive Insights with correct proportional chart
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.bar_chart_rounded,
+                          color: AppColors.farmerColor,
+                          size: 28,
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          "Market Demand Insights",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      "Historical Demand for $_currentMonthName",
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      "Based on last year's market demand trends",
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Correct proportional donut chart
+                    // Modern Horizontal Demand Intensity Chart
+                    const SizedBox(height: 16),
+                    Column(
+                      children:
+                          _currentMonthDemand.entries.map((e) {
+                            return _buildDemandIntensityBar(e.key, e.value);
+                          }).toList(),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.farmerColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.trending_up_rounded,
+                            color: AppColors.farmerColor,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              "Planting Suggestion: $_topSuggestedCrop is highly requested this month!",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Rest of dashboard (Quick Actions + Recent Shipments)
+              const SizedBox(height: 32),
+              const Text(
+                "Quick Actions",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(
+                    Icons.headset_mic_rounded,
+                    color: Colors.white,
+                  ),
+                  label: const Text(
+                    "Contact Admin",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.farmerColor,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {},
+                      icon: const Icon(
+                        Icons.receipt_long,
+                        color: AppColors.farmerColor,
+                      ),
+                      label: const Text(
+                        "Invoices",
+                        style: TextStyle(color: AppColors.farmerColor),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        side: BorderSide(color: AppColors.farmerColor),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // const SizedBox(height: 32),
+
+              // Row(
+              //   children: [
+              //     const Text(
+              //       "Recent Shipments",
+              //       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              //     ),
+              //     const Spacer(),
+              //     TextButton(
+              //       onPressed: () {},
+              //       child: Text(
+              //         "View All",
+              //         style: TextStyle(color: AppColors.farmerColor),
+              //       ),
+              //     ),
+              //   ],
+              // ),
+              // const SizedBox(height: 12),
+
+              // _buildShipmentCard(
+              //   Icons.agriculture_rounded,
+              //   "Organic Tomatoes",
+              //   "200kg • Shipped to Metro Market",
+              //   "+₹4,000",
+              //   "2h ago",
+              //   AppColors.farmerColor,
+              // ),
+              // const SizedBox(height: 12),
+              // _buildShipmentCard(
+              //   Icons.grass_rounded,
+              //   "Russet Potatoes",
+              //   "500kg • Delivered",
+              //   "+₹250",
+              //   "Yesterday",
+              //   Colors.orange,
+              // ),
+              const SizedBox(height: 40),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Removed _buildDemandSegments() as it's no longer used for the donut chart.
+
+  Widget _buildDemandIntensityBar(String crop, double intensity) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                crop,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                "${(intensity * 100).toInt()}% Demand",
+                style: TextStyle(
+                  color: AppColors.farmerColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Stack(
+            children: [
+              Container(
+                height: 10,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+              FractionallySizedBox(
+                widthFactor: intensity,
+                child: Container(
+                  height: 10,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.farmerColor,
+                        AppColors.farmerColor.withOpacity(0.7),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.farmerColor.withOpacity(0.2),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(
+    IconData icon,
+    Color color,
+    String title,
+    String value,
+    String change,
+    bool positive,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 25),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            change,
+            style: TextStyle(
+              color: positive ? Colors.green : Colors.red,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Removed unused _buildLegendItem
+
+  // Widget _buildShipmentCard(
+  //   IconData icon,
+  //   String title,
+  //   String subtitle,
+  //   String amount,
+  //   String time,
+  //   Color color,
+  // ) {
+  //   return Container(
+  //     padding: const EdgeInsets.all(16),
+  //     decoration: BoxDecoration(
+  //       color: Colors.white,
+  //       borderRadius: BorderRadius.circular(16),
+  //       boxShadow: [
+  //         BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+  //       ],
+  //     ),
+  //     child: Row(
+  //       children: [
+  //         CircleAvatar(
+  //           backgroundColor: color.withOpacity(0.1),
+  //           child: Icon(icon, color: color),
+  //         ),
+  //         const SizedBox(width: 16),
+  //         Expanded(
+  //           child: Column(
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Text(
+  //                 title,
+  //                 style: const TextStyle(fontWeight: FontWeight.bold),
+  //               ),
+  //               Text(
+  //                 subtitle,
+  //                 style: TextStyle(
+  //                   color: AppColors.textSecondary,
+  //                   fontSize: 13,
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //         Column(
+  //           crossAxisAlignment: CrossAxisAlignment.end,
+  //           children: [
+  //             Text(
+  //               amount,
+  //               style: TextStyle(
+  //                 color: AppColors.farmerColor,
+  //                 fontWeight: FontWeight.bold,
+  //               ),
+  //             ),
+  //             Text(
+  //               time,
+  //               style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+  //             ),
+  //           ],
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+}
