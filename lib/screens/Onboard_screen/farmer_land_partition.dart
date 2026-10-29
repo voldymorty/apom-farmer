@@ -5,6 +5,7 @@ import 'package:client/screens/Onboard_screen/welcome_screen.dart';
 import 'package:client/repository/profileSetup_repo.dart';
 import 'package:client/global/colortheme.dart';
 import 'package:client/widgets/custom_snackbar.dart';
+import 'package:client/widgets/crop_picker_sheet.dart';
 import 'package:flutter/material.dart';
 
 class FarmerLandPartitionScreen extends StatefulWidget {
@@ -108,7 +109,11 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
 
   double get _remainingLand => widget.totalLand - _usedLand;
 
-  bool get _isTotalMatched => (_usedLand - widget.totalLand).abs() <= _epsilon;
+  // Crop partitions only need to fit within the total land — they no
+  // longer need to add up to it exactly. Any leftover is fallow land.
+  bool get _isWithinLimit => _usedLand - widget.totalLand <= _epsilon;
+  double get _fallowLand => _remainingLand < 0 ? 0 : _remainingLand;
+
   int get _maxPartitionCount {
     final maxByLand = widget.totalLand.floor();
     return maxByLand < 1 ? 1 : maxByLand;
@@ -119,11 +124,12 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
   bool _isCardValid(_LandPartitionInput item) {
     if (item.selectedProductId == null) return false;
     if (item.parsedArea <= 0) return false;
+    if (item.parsedYield == null || item.parsedYield! <= 0) return false;
     if (item.plantationDate == null || item.harvestingDate == null) return false;
     return item.harvestingDate!.isAfter(item.plantationDate!);
   }
 
-  bool get _isReady => _partitions.every(_isCardValid) && _isTotalMatched;
+  bool get _isReady => _partitions.every(_isCardValid) && _isWithinLimit;
 
   String _formatDate(DateTime date) {
     return MaterialLocalizations.of(context).formatMediumDate(date);
@@ -135,7 +141,7 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
     final selected = await showDatePicker(
       context: context,
       initialDate: item.plantationDate ?? now,
-      firstDate: DateTime(2000),
+      firstDate: now.subtract(const Duration(days: 30)),
       lastDate: DateTime(2100),
       helpText: 'Select Plantation Date',
     );
@@ -166,299 +172,19 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
 
   Future<void> _showCropPickerSheet(int partitionIndex) async {
     final item = _partitions[partitionIndex];
-    Datum? selectedCategory;
-    String categorySearch = '';
-    String productSearch = '';
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            // ── STEP 2: Product list ──
-            if (selectedCategory != null) {
-              final filtered = selectedCategory!.products
-                  .where((p) => p.productName
-                      .toLowerCase()
-                      .contains(productSearch.toLowerCase()))
-                  .toList();
-
-              return _bottomSheetContainer(
-                child: Column(
-                  children: [
-                    // header
-                    _sheetHeader(
-                      title: selectedCategory!.categoryName,
-                      onBack: () => setSheetState(() {
-                        selectedCategory = null;
-                        productSearch = '';
-                      }),
-                    ),
-                    const SizedBox(height: 12),
-                    // search
-                    _sheetSearchField(
-                      hint: 'Search product...',
-                      onChanged: (v) => setSheetState(() => productSearch = v),
-                    ),
-                    const SizedBox(height: 12),
-                    // list
-                    Expanded(
-                      child: filtered.isEmpty
-                          ? _sheetEmptyState('No products found')
-                          : ListView.separated(
-                              padding: const EdgeInsets.only(bottom: 24),
-                              itemCount: filtered.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (_, i) {
-                                final product = filtered[i];
-                                final isSelected =
-                                    item.selectedProductId == product.productId;
-                                return ListTile(
-                                  onTap: () {
-                                    setState(() {
-                                      item.selectedProductId = product.productId;
-                                      item.selectedProductName =
-                                          product.productName;
-                                      item.selectedCategoryName =
-                                          selectedCategory!.categoryName;
-                                    });
-                                    Navigator.pop(sheetContext);
-                                  },
-                                  leading: CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: isSelected
-                                        ? AppColors.farmerColor.withOpacity(0.15)
-                                        : const Color(0xFFF3ECE1),
-                                    child: Text(
-                                      product.productName[0].toUpperCase(),
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: isSelected
-                                            ? AppColors.farmerColor
-                                            : const Color(0xFF6B7C6E),
-                                      ),
-                                    ),
-                                  ),
-                                  title: Text(
-                                    product.productName,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                      color: isSelected
-                                          ? AppColors.farmerColor
-                                          : const Color(0xFF2D4A35),
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    product.unit,
-                                    style: const TextStyle(
-                                      fontSize: 11.5,
-                                      color: Color(0xFF7C8C7F),
-                                    ),
-                                  ),
-                                  trailing: isSelected
-                                      ? Icon(Icons.check_circle_rounded,
-                                          color: AppColors.farmerColor)
-                                      : const Icon(
-                                          Icons.chevron_right_rounded,
-                                          color: Color(0xFF9AA89C),
-                                        ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            // ── STEP 1: Category list ──
-            final filteredCats = _categories
-                .where((c) => c.categoryName
-                    .toLowerCase()
-                    .contains(categorySearch.toLowerCase()))
-                .toList();
-
-            return _bottomSheetContainer(
-              child: Column(
-                children: [
-                  _sheetHeader(title: 'Select Category'),
-                  const SizedBox(height: 12),
-                  _sheetSearchField(
-                    hint: 'Search category...',
-                    onChanged: (v) => setSheetState(() => categorySearch = v),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: _categoriesLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : filteredCats.isEmpty
-                            ? _sheetEmptyState('No categories found')
-                            : ListView.separated(
-                                padding: const EdgeInsets.only(bottom: 24),
-                                itemCount: filteredCats.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (_, i) {
-                                  final cat = filteredCats[i];
-                                  return ListTile(
-                                    onTap: () => setSheetState(
-                                        () => selectedCategory = cat),
-                                    leading: CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor:
-                                          const Color(0xFFF3ECE1),
-                                      child: Text(
-                                        cat.categoryName[0].toUpperCase(),
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF6B7C6E),
-                                        ),
-                                      ),
-                                    ),
-                                    title: Text(
-                                      cat.categoryName,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 14,
-                                        color: Color(0xFF2D4A35),
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      '${cat.products.length} product${cat.products.length != 1 ? 's' : ''}',
-                                      style: const TextStyle(
-                                        fontSize: 11.5,
-                                        color: Color(0xFF7C8C7F),
-                                      ),
-                                    ),
-                                    trailing: const Icon(
-                                      Icons.chevron_right_rounded,
-                                      color: Color(0xFF9AA89C),
-                                    ),
-                                  );
-                                },
-                              ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+    final selection = await showCropPickerSheet(
+      context,
+      categories: _categories,
+      categoriesLoading: _categoriesLoading,
     );
+    if (selection == null) return;
+    setState(() {
+      item.selectedProductId = selection.productId;
+      item.selectedProductName = selection.productName;
+      item.selectedCategoryName = selection.categoryName;
+    });
   }
 
-  // ── Sheet helper widgets ──
-
-  Widget _bottomSheetContainer({required Widget child}) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.72,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      child: child,
-    );
-  }
-
-  Widget _sheetHeader({required String title, VoidCallback? onBack}) {
-    return Row(
-      children: [
-        if (onBack != null) ...[
-          GestureDetector(
-            onTap: onBack,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3ECE1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  size: 16, color: Color(0xFF2D4A35)),
-            ),
-          ),
-          const SizedBox(width: 10),
-        ],
-        // drag handle centred when no back button
-        if (onBack == null)
-          Expanded(
-            child: Column(
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD4C9B0),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF2D4A35))),
-              ],
-            ),
-          )
-        else
-          Expanded(
-            child: Text(title,
-                style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF2D4A35))),
-          ),
-      ],
-    );
-  }
-
-  Widget _sheetSearchField({
-    required String hint,
-    required ValueChanged<String> onChanged,
-  }) {
-    return TextField(
-      onChanged: onChanged,
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF9AA89C)),
-        prefixIcon: const Icon(Icons.search_rounded,
-            size: 20, color: Color(0xFF7A8C7D)),
-        filled: true,
-        fillColor: const Color(0xFFF5F0E8),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-      ),
-    );
-  }
-
-  Widget _sheetEmptyState(String message) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.search_off_rounded,
-              size: 48, color: const Color(0xFFD4C9B0)),
-          const SizedBox(height: 12),
-          Text(message,
-              style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF9AA89C),
-                  fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
 
   Future<void> _pickHarvestingDate(int index) async {
     final item = _partitions[index];
@@ -526,6 +252,13 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
         );
         return;
       }
+      if (partition.parsedYield == null || partition.parsedYield! <= 0) {
+        CustomSnackBar.error(
+          context,
+          'Enter expected yield in partition ${i + 1}',
+        );
+        return;
+      }
       if (partition.plantationDate == null ||
           partition.harvestingDate == null) {
         CustomSnackBar.error(
@@ -543,11 +276,11 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
       }
     }
 
-    if (!_isTotalMatched) {
-      final delta = (_usedLand - widget.totalLand).abs().toStringAsFixed(2);
+    if (!_isWithinLimit) {
+      final over = (_usedLand - widget.totalLand).toStringAsFixed(2);
       CustomSnackBar.error(
         context,
-        'Partition total must match total land exactly. Difference: $delta $_unitLabel',
+        'Allocated crop land exceeds total land by $over $_unitLabel. Reduce a partition area.',
       );
       return;
     }
@@ -557,8 +290,10 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
     try {
       final List<Map<String, dynamic>> partitionPayload = _partitions.map((partition) => <String, dynamic>{
         'crop_name': partition.selectedProductName ?? '',
-        'product_id': partition.selectedProductId,          // new field
+        'product_id': partition.selectedProductId,
         'area_value': partition.parsedArea,
+        'expected_yield_value': partition.parsedYield,
+        'expected_yield_unit': partition.yieldUnit,
         'plantation_date': partition.plantationDate?.toIso8601String().split('T')[0],
         'harvesting_date': partition.harvestingDate?.toIso8601String().split('T')[0],
       }).toList();
@@ -951,6 +686,54 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
                 icon: Icons.square_foot_rounded,
               ),
             ),
+            const SizedBox(height: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: item.yieldController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                    decoration: _fieldDecoration(
+                      label: 'Expected Yield',
+                      hint: 'Enter expected quantity',
+                      icon: Icons.grain_rounded,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(
+                    height: 56,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFCFAF5),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE0D6C3)),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: item.yieldUnit,
+                        isExpanded: true,
+                        items: const [
+                          DropdownMenuItem(value: 'kg', child: Text('kg')),
+                          DropdownMenuItem(value: 'ton', child: Text('ton')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => item.yieldUnit = value);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -1120,18 +903,18 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
                 ),
                 decoration: BoxDecoration(
                   color:
-                      _isTotalMatched
+                      !exceeded
                           ? AppColors.farmerColor.withOpacity(0.15)
                           : const Color(0xFFFDEAEA),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  _isTotalMatched ? 'Balanced' : 'Not Balanced',
+                  !exceeded ? 'Within Limit' : 'Exceeds Land',
                   style: TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w700,
                     color:
-                        _isTotalMatched
+                        !exceeded
                             ? AppColors.farmerColor
                             : AppColors.error,
                   ),
@@ -1151,14 +934,14 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
               ),
               const SizedBox(width: 8),
               _landMetric(
-                label: 'Used',
+                label: 'Cultivated',
                 value: used.toStringAsFixed(2),
                 unit: _unitLabel,
               ),
               const SizedBox(width: 8),
               _landMetric(
-                label: 'Remaining',
-                value: remaining.toStringAsFixed(2),
+                label: 'Fallow',
+                value: (remaining < 0 ? 0 : remaining).toStringAsFixed(2),
                 unit: _unitLabel,
                 valueColor:
                     exceeded ? AppColors.error : const Color(0xFF2D4A35),
@@ -1167,12 +950,12 @@ class _FarmerLandPartitionScreenState extends State<FarmerLandPartitionScreen>
           ),
           const SizedBox(height: 5),
           Text(
-            _isTotalMatched
-                ? 'Land partition total is balanced.'
-                : 'Partition total must match total land exactly.',
+            !exceeded
+                ? 'Unallocated land is automatically fallow.'
+                : 'Cultivated land cannot exceed total land.',
             style: TextStyle(
               fontSize: 11.5,
-              color: _isTotalMatched ? AppColors.farmerColor : AppColors.error,
+              color: !exceeded ? AppColors.farmerColor : AppColors.error,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1585,6 +1368,7 @@ class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
 class _LandPartitionInput {
   final TextEditingController cropController;
   final TextEditingController areaController;
+  final TextEditingController yieldController;
   DateTime? plantationDate;
   DateTime? harvestingDate;
 
@@ -1593,14 +1377,21 @@ class _LandPartitionInput {
   String? selectedProductName;
   String? selectedCategoryName;
 
+  // expected yield
+  String yieldUnit;
+
   _LandPartitionInput()
     : cropController = TextEditingController(),
-      areaController = TextEditingController();
+      areaController = TextEditingController(),
+      yieldController = TextEditingController(),
+      yieldUnit = 'kg';
 
   double get parsedArea => double.tryParse(areaController.text.trim()) ?? 0;
+  double? get parsedYield => double.tryParse(yieldController.text.trim());
 
   void dispose() {
     cropController.dispose();
     areaController.dispose();
+    yieldController.dispose();
   }
 }

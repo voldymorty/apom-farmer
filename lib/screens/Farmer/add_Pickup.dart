@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:client/global/colortheme.dart';
 import 'package:client/models/crop_catogory_model.dart';
 import 'package:client/repository/add_pickup_repository.dart';
+import 'package:client/screens/Farmer/subscription_plan_screen.dart';
+import 'package:client/utils/subscription_exception.dart';
 import 'package:client/widgets/custom_app_bar.dart';
 import 'package:client/widgets/custom_snackbar.dart';
 import 'package:client/widgets/custom_text_field.dart';
@@ -17,6 +19,31 @@ class AddCropScreen extends StatefulWidget {
   State<AddCropScreen> createState() => _AddCropScreenState();
 }
 
+class DraftCropItem {
+  final int productId;
+  final String productName;
+  final String categoryName;
+  final double quantityKg;
+  final double expectedPricePerKg;
+  final String grade;
+
+  DraftCropItem({
+    required this.productId,
+    required this.productName,
+    required this.categoryName,
+    required this.quantityKg,
+    required this.expectedPricePerKg,
+    required this.grade,
+  });
+
+  Map<String, dynamic> toMap() => {
+    "product_id": productId,
+    "quantity_kg": quantityKg,
+    "expected_price_per_kg": expectedPricePerKg,
+    "grade": grade,
+  };
+}
+
 class _AddCropScreenState extends State<AddCropScreen> {
   final _formKey = GlobalKey<FormState>();
 
@@ -27,6 +54,9 @@ class _AddCropScreenState extends State<AddCropScreen> {
   String? _selectedCategory;
   String? _selectedCropName;
   String? _selectedGrade;
+
+  // Multi-item draft list
+  final List<DraftCropItem> _draftItems = [];
 
   // Photos (1 to 3)
   final List<File> _photos = [];
@@ -145,69 +175,145 @@ class _AddCropScreenState extends State<AddCropScreen> {
     }
   }
 
+  void _addDraftCrop() {
+    if (_selectedProductId == null) {
+      CustomSnackBar.error(context, "Select crop category and crop name");
+      return;
+    }
+    if (_selectedGrade == null) {
+      CustomSnackBar.error(context, "Please select quality grade");
+      return;
+    }
+    final quantity = double.tryParse(_quantityController.text.trim());
+    if (quantity == null || quantity <= 0) {
+      CustomSnackBar.error(context, "Enter valid quantity");
+      return;
+    }
+    final expectedPrice = double.tryParse(_priceController.text.trim());
+    if (expectedPrice == null || expectedPrice <= 0) {
+      CustomSnackBar.error(context, "Enter valid expected price");
+      return;
+    }
+    final gradeValue = _selectedGrade!.replaceAll('Grade ', '').trim();
+
+    setState(() {
+      _draftItems.add(DraftCropItem(
+        productId: _selectedProductId!,
+        productName: _selectedCropName ?? "Crop",
+        categoryName: _selectedCategory ?? "",
+        quantityKg: quantity,
+        expectedPricePerKg: expectedPrice,
+        grade: gradeValue,
+      ));
+      _quantityController.clear();
+      _priceController.clear();
+      _selectedCropName = null;
+      _selectedProductId = null;
+      _selectedGrade = null;
+    });
+
+    CustomSnackBar.success(context, "Crop added to request! You can add another crop or submit below.");
+  }
+
   void _submitCrop() {
-    if (_formKey.currentState!.validate()) {
-      if (_photos.isEmpty) {
-        CustomSnackBar.error(context, "Please upload at least 1 photo");
+    // If no draft items yet, try to parse current form input as the single item
+    if (_draftItems.isEmpty) {
+      if (_selectedProductId == null) {
+        CustomSnackBar.error(context, "Select crop category and crop name");
         return;
       }
-
-      if (_harvestDate == null) {
-        CustomSnackBar.error(context, "Please select harvest date");
-        return;
-      }
-
       if (_selectedGrade == null) {
         CustomSnackBar.error(context, "Please select quality grade");
         return;
       }
-
       final quantity = double.tryParse(_quantityController.text.trim());
       if (quantity == null || quantity <= 0) {
         CustomSnackBar.error(context, "Enter valid quantity");
         return;
       }
-
       final expectedPrice = double.tryParse(_priceController.text.trim());
       if (expectedPrice == null || expectedPrice <= 0) {
         CustomSnackBar.error(context, "Enter valid expected price");
         return;
       }
-
-      if (_selectedProductId == null) {
-        CustomSnackBar.error(context, "Select crop category and crop name");
-        return;
-      }
-
-      setState(() => _isLoading = true);
-
       final gradeValue = _selectedGrade!.replaceAll('Grade ', '').trim();
+      _draftItems.add(DraftCropItem(
+        productId: _selectedProductId!,
+        productName: _selectedCropName ?? "Crop",
+        categoryName: _selectedCategory ?? "",
+        quantityKg: quantity,
+        expectedPricePerKg: expectedPrice,
+        grade: gradeValue,
+      ));
+    }
 
-      _repo
-          .submitPickup(
-            productId: _selectedProductId!,
-            quantity: quantity,
-            expectedPrice: expectedPrice,
-            grade: gradeValue,
-            harvestDate: _harvestDate!,
-            photos: _photos,
-            remarks: _remarksController.text,
-          )
-          .then((_) {
-            if (!mounted) return;
-            setState(() => _isLoading = false);
-            CustomSnackBar.success(
-              context,
-              "Pickup submitted to admin for approval!",
-            );
-            Navigator.pop(context);
-          })
+    if (_photos.isEmpty) {
+      CustomSnackBar.error(context, "Please upload at least 1 photo");
+      return;
+    }
+
+    if (_harvestDate == null) {
+      CustomSnackBar.error(context, "Please select harvest date");
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    final primaryItem = _draftItems.first;
+    final itemsPayload = _draftItems.map((e) => e.toMap()).toList();
+
+    _repo
+        .submitPickup(
+          productId: primaryItem.productId,
+          quantity: primaryItem.quantityKg,
+          expectedPrice: primaryItem.expectedPricePerKg,
+          grade: primaryItem.grade,
+          harvestDate: _harvestDate!,
+          photos: _photos,
+          remarks: _remarksController.text,
+          items: itemsPayload,
+        )
+        .then((_) {
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          CustomSnackBar.success(
+            context,
+            "Pickup submitted to admin for approval!",
+          );
+          Navigator.pop(context);
+        })
           .catchError((e) {
             if (!mounted) return;
             setState(() => _isLoading = false);
+
+            if (e is SubscriptionRequiredException) {
+              CustomSnackBar.show(
+                context,
+                e.isFlagged
+                    ? "Your subscription has been flagged. Contact support to continue."
+                    : e.isExpired
+                        ? "Your subscription has expired. Renew to submit listings."
+                        : "An active subscription is required to submit listings.",
+                isError: true,
+                duration: const Duration(seconds: 5),
+                action: e.isFlagged
+                    ? null
+                    : SnackBarAction(
+                        label: "View Plans",
+                        textColor: Colors.white,
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SubscriptionPlanScreen(),
+                          ),
+                        ),
+                      ),
+              );
+              return;
+            }
+
             CustomSnackBar.error(context, "Failed to submit pickup: $e");
           });
-    }
   }
 
   // Add this method inside _AddCropScreenState
@@ -413,6 +519,7 @@ class _AddCropScreenState extends State<AddCropScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _buildDraftItemsCard(),
               // General Information
               const Text(
                 "General Information",
@@ -600,6 +707,29 @@ class _AddCropScreenState extends State<AddCropScreen> {
                   const SizedBox(width: 12),
                   _buildGradeButton("Grade C", _selectedGrade == "Grade C"),
                 ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _addDraftCrop,
+                  icon: const Icon(Icons.add_circle_outline, color: AppColors.farmerColor),
+                  label: const Text(
+                    "+ Add Crop to Request List",
+                    style: TextStyle(
+                      color: AppColors.farmerColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.farmerColor, width: 1.5),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 25),
 
@@ -832,17 +962,122 @@ class _AddCropScreenState extends State<AddCropScreen> {
     );
   }
 
-  // Future<void> _selectDate(BuildContext context) async {
-  //   final DateTime? picked = await showDatePicker(
-  //     context: context,
-  //     initialDate: _availableDate ?? DateTime.now(),
-  //     firstDate: DateTime.now(),
-  //     lastDate: DateTime.now().add(const Duration(days: 365)),
-  //   );
-  //   if (picked != null) {
-  //     setState(() => _availableDate = picked);
-  //   }
-  // }
+  Widget _buildDraftItemsCard() {
+    if (_draftItems.isEmpty) return const SizedBox.shrink();
+
+    final totalQty = _draftItems.fold<double>(0.0, (sum, item) => sum + item.quantityKg);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.farmerColor.withOpacity(0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.inventory_2_outlined, color: AppColors.farmerColor, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Crops in Request (${_draftItems.length})",
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.farmerColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  "Total: ${totalQty.toStringAsFixed(1)} kg",
+                  style: TextStyle(
+                    color: AppColors.farmerColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _draftItems.length,
+            separatorBuilder: (_, __) => const Divider(height: 16),
+            itemBuilder: (context, index) {
+              final item = _draftItems[index];
+              return Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppColors.farmerColor.withOpacity(0.12),
+                    child: Text(
+                      item.grade,
+                      style: TextStyle(
+                        color: AppColors.farmerColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.productName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          "${item.quantityKg} kg  •  ₹${item.expectedPricePerKg}/kg",
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red, size: 22),
+                    onPressed: () {
+                      setState(() {
+                        _draftItems.removeAt(index);
+                      });
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
-
-

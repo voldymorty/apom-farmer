@@ -21,6 +21,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   LatLng? _currentPosition;
   LatLng? _selectedPosition;
   String _selectedAddress = "Fetching address...";
+
+  String? _selectedPincode;
+
   bool _isLoading = true;
   bool _isLoadingAddress = false;
   bool _isSearching = false;
@@ -204,6 +207,30 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     });
   }
 
+  // Future<void> _getAddressFromLatLng(LatLng position) async {
+  //   setState(() => _isLoadingAddress = true);
+
+  //   try {
+  //     List<Placemark> placemarks = await placemarkFromCoordinates(
+  //       position.latitude,
+  //       position.longitude,
+  //     );
+
+  //     if (placemarks.isNotEmpty) {
+  //       Placemark place = placemarks[0];
+  //       setState(() {
+  //         _selectedAddress = _formatAddress(place);
+  //         _isLoadingAddress = false;
+  //       });
+  //     }
+  //   } catch (e) {
+  //     setState(() {
+  //       _selectedAddress = "Unable to fetch address";
+  //       _isLoadingAddress = false;
+  //     });
+  //   }
+  // }
+
   Future<void> _getAddressFromLatLng(LatLng position) async {
     setState(() => _isLoadingAddress = true);
 
@@ -215,14 +242,19 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks[0];
+
         setState(() {
           _selectedAddress = _formatAddress(place);
+
+          _selectedPincode = place.postalCode;
+
           _isLoadingAddress = false;
         });
       }
     } catch (e) {
       setState(() {
         _selectedAddress = "Unable to fetch address";
+        _selectedPincode = null;
         _isLoadingAddress = false;
       });
     }
@@ -281,12 +313,25 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     }
   }
 
+  // void _confirmLocation() {
+  //   if (_selectedPosition != null) {
+  //     Navigator.pop(context, {
+  //       'latitude': _selectedPosition!.latitude,
+  //       'longitude': _selectedPosition!.longitude,
+  //       'address': _selectedAddress,
+  //     });
+  //   }
+  // }
+
   void _confirmLocation() {
     if (_selectedPosition != null) {
       Navigator.pop(context, {
         'latitude': _selectedPosition!.latitude,
         'longitude': _selectedPosition!.longitude,
         'address': _selectedAddress,
+
+        // Reverse geocoded details
+        'pincode': _selectedPincode,
       });
     }
   }

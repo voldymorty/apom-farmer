@@ -4,9 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:client/screens/Onboard_screen/login.dart';
 import 'package:client/global/colortheme.dart';
 import 'package:flutter/material.dart';
-import 'package:client/screens/Farmer/about_screen.dart';
 import 'package:client/screens/Farmer/help_support_screen.dart';
-import 'package:client/screens/Farmer/terms_conditions_screen.dart';
 import 'package:client/models/profile_detail_model.dart';
 import 'package:client/models/state_model.dart' as state_model;
 import 'package:client/models/district_model.dart' as district_model;
@@ -17,6 +15,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../widgets/custom_app_bar.dart';
 import 'account_setting_screen.dart';
+import 'package:client/repository/subscription_repository.dart';
+import 'package:client/screens/Farmer/subscription_plan_screen.dart';
 
 class FarmerProfileScreen extends ConsumerWidget {
   const FarmerProfileScreen({super.key});
@@ -50,82 +50,9 @@ class FarmerProfileScreen extends ConsumerWidget {
     );
   }
 
-  void _showDeleteAccountDialog(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        String confirmText = "";
-        return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: const Text("Delete Account"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  "This action will deactivate your account and cannot be undone.",
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  onChanged: (value) => setDialogState(() => confirmText = value),
-                  decoration: const InputDecoration(
-                    labelText: "Type DELETE to confirm",
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text("Cancel"),
-              ),
-              TextButton(
-                onPressed:
-                confirmText.trim().toUpperCase() == "DELETE"
-                    ? () async {
-                  Navigator.pop(dialogContext);
-                  final success =
-                  await ref.read(profileSetupRepoProvider).deleteAccount();
-                  if (success && context.mounted) {
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
-                      ),
-                          (route) => false,
-                    );
-                  } else if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          "Failed to delete account. Please try again.",
-                        ),
-                      ),
-                    );
-                  }
-                }
-                    : null,
-                child: const Text(
-                  "Delete",
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showEditProfileSheet(BuildContext context, Profile profile) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => _EditProfileSheet(initialProfile: profile),
-    );
+  Future<void> _refreshProfile(WidgetRef ref) async {
+    ref.invalidate(profileProvider);
+    await ref.read(profileProvider.future);
   }
 
   void _openWebView(BuildContext context, String url, String title) {
@@ -137,10 +64,25 @@ class FarmerProfileScreen extends ConsumerWidget {
     );
   }
 
+  String _formatEarnings(double amount) {
+    if (amount >= 10000000) {
+      return '${(amount / 10000000).toStringAsFixed(
+        amount % 10000000 == 0 ? 0 : 1,
+      )}Cr';
+    } else if (amount >= 100000) {
+      return '${(amount / 100000).toStringAsFixed(
+        amount % 100000 == 0 ? 0 : 1,
+      )}L';
+    }
+
+    return amount.toStringAsFixed(0);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     AppSize.init(context);
     final profileAsync = ref.watch(profileProvider);
+    final subStatusAsync = ref.watch(subscriptionStatusProvider);
 
     return Scaffold(
       backgroundColor: AppColors.loginBackground,
@@ -157,242 +99,316 @@ class FarmerProfileScreen extends ConsumerWidget {
             return const Center(child: Text("Failed to load profile"));
           }
           final userProfile = profileData.data.profile;
-          return SingleChildScrollView(
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-
-                // Profile Header Card
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 20),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.farmerColor.withOpacity(0.1),
-                        AppColors.farmerColor.withOpacity(0.05),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: AppColors.farmerColor.withOpacity(0.2),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Stack(
-                        children: [
-                          CircleAvatar(
-                            radius: 45,
-                            backgroundColor: AppColors.farmerColor.withOpacity(0.2),
-                            child: CircleAvatar(
-                              radius: 42,
-                              backgroundImage: userProfile.profilePhotoUrl != null
-                                  ? NetworkImage(userProfile.profilePhotoUrl!)
-                                  : const NetworkImage(
-                                "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500",
-                              ),
-                            ),
-                          ),
-                          if (profileData.data.isVerified)
-                            Positioned(
-                              bottom: 2,
-                              right: 2,
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: Colors.green,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 2),
-                                ),
-                                child: const Icon(
-                                  Icons.check,
-                                  color: Colors.white,
-                                  size: 14,
-                                ),
-                              ),
-                            ),
+          return RefreshIndicator(
+            onRefresh: () => _refreshProfile(ref),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 16),
+            
+                  // Profile Header Card
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppColors.farmerColor.withOpacity(0.1),
+                          AppColors.farmerColor.withOpacity(0.05),
                         ],
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: AppColors.farmerColor.withOpacity(0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Stack(
                           children: [
-                            Text(
-                              userProfile.fullName,
-                              style: TextStyle(
-                                fontSize: AppSize.width * 0.05,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
+                            CircleAvatar(
+                              radius: 45,
+                              backgroundColor: AppColors.farmerColor.withOpacity(0.2),
+                              child: CircleAvatar(
+                                radius: 42,
+                                backgroundImage: userProfile.profilePhotoUrl != null
+                                    ? NetworkImage(userProfile.profilePhotoUrl!)
+                                    : const NetworkImage(
+                                  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500",
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
                             ),
-                            const SizedBox(height: 4),
-                            // Container(
-                            //   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            //   decoration: BoxDecoration(
-                            //     color: AppColors.farmerColor.withOpacity(0.1),
-                            //     borderRadius: BorderRadius.circular(12),
-                            //   ),
-                            //   child: Text(
-                            //     "ID: #${userProfile.farmerId}",
-                            //     style: TextStyle(
-                            //       color: AppColors.farmerColor,
-                            //       fontSize: 12,
-                            //       fontWeight: FontWeight.w600,
-                            //     ),
-                            //   ),
-                            // ),
-                            // const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.location_on_outlined,
+                            if (profileData.data.isVerified)
+                              Positioned(
+                                bottom: 2,
+                                right: 2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                  child: const Icon(
+                                    Icons.check,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                userProfile.fullName,
+                                style: TextStyle(
+                                  fontSize: AppSize.width * 0.05,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              // Container(
+                              //   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              //   decoration: BoxDecoration(
+                              //     color: AppColors.farmerColor.withOpacity(0.1),
+                              //     borderRadius: BorderRadius.circular(12),
+                              //   ),
+                              //   child: Text(
+                              //     "ID: #${userProfile.farmerId}",
+                              //     style: TextStyle(
+                              //       color: AppColors.farmerColor,
+                              //       fontSize: 12,
+                              //       fontWeight: FontWeight.w600,
+                              //     ),
+                              //   ),
+                              // ),
+                              // const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.location_on_outlined,
+                                    size: 14,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      "${userProfile.cityInfo.cityName}, ${userProfile.stateInfo.stateName}",
+                                      style: TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+            
+                  const SizedBox(height: 24),
+            
+                  // Stats Cards Row
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _buildStatCard(
+                            icon: Icons.currency_rupee_sharp,
+                            label: "Total Earnings",
+                            value: "₹ ${_formatEarnings(
+                              double.tryParse(userProfile.totalEarnings.toString()) ?? 0.0,
+                            )}",
+                            color: AppColors.farmerColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+            
+                  const SizedBox(height: 20),
+            
+                  // Menu Sections
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Column(
+                      children: [
+                        _buildMenuSection(
+                          title: "ACCOUNT",
+                          items: [
+                            _MenuItem(
+                              icon: Icons.workspace_premium_rounded,
+                              title: "Subscription & Plans",
+                              subtitle: subStatusAsync.maybeWhen(
+                                data: (status) {
+                                  if (status.isActive) {
+                                    final sub = status.subscription!;
+                                    return "${sub.planTypeLabel} (${sub.durationLabel}) • Tap to upgrade";
+                                  } else if (status.isExpired) {
+                                    return "Expired • Tap to renew";
+                                  } else {
+                                    return "No active plan • Tap to subscribe";
+                                  }
+                                },
+                                orElse: () => "Manage your subscription & plans",
+                              ),
+                              trailing: subStatusAsync.maybeWhen(
+                                data: (status) {
+                                  if (status.isActive) {
+                                    final isPrem = status.isPremium;
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: isPrem
+                                                ? AppColors.farmerColor.withOpacity(0.12)
+                                                : Colors.blue.withOpacity(0.12),
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: Text(
+                                            isPrem ? "Premium" : "Basic",
+                                            style: TextStyle(
+                                              color: isPrem ? AppColors.farmerColor : Colors.blue.shade700,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const Icon(
+                                          Icons.arrow_forward_ios_rounded,
+                                          size: 14,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ],
+                                    );
+                                  }
+                                  return const Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    size: 14,
+                                    color: AppColors.textSecondary,
+                                  );
+                                },
+                                orElse: () => const Icon(
+                                  Icons.arrow_forward_ios_rounded,
                                   size: 14,
                                   color: AppColors.textSecondary,
                                 ),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    "${userProfile.cityInfo.cityName}, ${userProfile.stateInfo.stateName}",
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
+                              ),
+                              onTap: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const SubscriptionPlanScreen()),
+                                );
+                                ref.invalidate(subscriptionStatusProvider);
+                              },
+                            ),
+                            _MenuItem(
+                              icon: Icons.settings_outlined,
+                              title: "Account Settings",
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => const AccountSettingScreen()),
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Stats Cards Row
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _buildStatCard(
-                          icon: Icons.currency_rupee_sharp,
-                          label: "Total Earnings",
-                          value: "₹ ${userProfile.totalEarnings}",
-                          color: AppColors.farmerColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Menu Sections
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Column(
-                    children: [
-                      _buildMenuSection(
-                        title: "ACCOUNT",
-                        items: [
-                          _MenuItem(
-                            icon: Icons.settings_outlined,
-                            title: "Account Settings",
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const AccountSettingScreen()),
+                        const SizedBox(height: 20),
+                        _buildMenuSection(
+                          title: "INFORMATION",
+                          items: [
+                            _MenuItem(
+                              icon: Icons.description_outlined,
+                              title: "Terms & Conditions",
+                              subtitle: "T&C for using our platform",
+                              onTap: () => _openWebView(context, "https://apom.in/terms-conditions", "Terms & Conditions"),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      _buildMenuSection(
-                        title: "INFORMATION",
-                        items: [
-                          _MenuItem(
-                            icon: Icons.description_outlined,
-                            title: "Terms & Conditions",
-                            subtitle: "T&C for using our platform",
-                            onTap: () => _openWebView(context, "https://apom.in/terms-conditions", "Terms & Conditions"),
-                          ),
-                          _MenuItem(
-                            icon: Icons.privacy_tip_outlined,
-                            title: "Privacy Policy",
-                            subtitle: "How we handle your data",
-                            onTap: () => _openWebView(context, "https://apom.in/privacy-policy", "Privacy Policy"),
-                          ),
-                          _MenuItem(
-                            icon: Icons.receipt_outlined,
-                            title: "Refund & Cancellation",
-                            subtitle: "Policy for refunds and cancellations",
-                            onTap: () => _openWebView(context, "https://apom.in/refund-cancellation", "Refund & Cancellation"),
-                          ),
-                          _MenuItem(
-                            icon: Icons.support_agent_outlined,
-                            title: "Help & Support",
-                            subtitle: "Get help with your queries",
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (context) => const HelpSupportFarmerScreen()),
-                              );
-                            },
-                          ),
-                          _MenuItem(
-                            icon: Icons.info_outline_rounded,
-                            title: "About Us",
-                            subtitle: "Learn more about Apom",
-                            onTap: () => _openWebView(context, "https://apom.in/about", "About Us"),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Action Buttons
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Column(
-                    children: [
-                      _buildActionButton(
-                        icon: Icons.logout,
-                        label: "Logout",
-                        subLabel: "Sign out of your account",
-                        color: Colors.red,
-                        backgroundColor: Colors.transparent,
-                        borderColor: Colors.red,
-                        onPressed: () => _showLogoutDialog(context, ref),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Version
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                    "Version 1.0.0",
-                    style: TextStyle(
-                      color: AppColors.textSecondary.withOpacity(0.6),
-                      fontSize: 12,
+                            _MenuItem(
+                              icon: Icons.privacy_tip_outlined,
+                              title: "Privacy Policy",
+                              subtitle: "How we handle your data",
+                              onTap: () => _openWebView(context, "https://apom.in/privacy-policy", "Privacy Policy"),
+                            ),
+                            _MenuItem(
+                              icon: Icons.receipt_outlined,
+                              title: "Refund & Cancellation",
+                              subtitle: "Policy for refunds and cancellations",
+                              onTap: () => _openWebView(context, "https://apom.in/refund-cancellation", "Refund & Cancellation"),
+                            ),
+                            _MenuItem(
+                              icon: Icons.support_agent_outlined,
+                              title: "Help & Support",
+                              subtitle: "Get help with your queries",
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const HelpSupportFarmerScreen()),
+                                );
+                              },
+                            ),
+                            _MenuItem(
+                              icon: Icons.info_outline_rounded,
+                              title: "About Us",
+                              subtitle: "Learn more about Apom",
+                              onTap: () => _openWebView(context, "https://apom.in/about", "About Us"),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-              ],
+            
+                  const SizedBox(height: 24),
+            
+                  // Action Buttons
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Column(
+                      children: [
+                        _buildActionButton(
+                          icon: Icons.logout,
+                          label: "Logout",
+                          subLabel: "Sign out of your account",
+                          color: Colors.red,
+                          backgroundColor: Colors.transparent,
+                          borderColor: Colors.red,
+                          onPressed: () => _showLogoutDialog(context, ref),
+                        ),
+                      ],
+                    ),
+                  ),
+            
+                  const SizedBox(height: 24),
+            
+                  // Version
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      "Version 1.0.0",
+                      style: TextStyle(
+                        color: AppColors.textSecondary.withOpacity(0.6),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
             ),
           );
         },
@@ -527,11 +543,12 @@ class FarmerProfileScreen extends ConsumerWidget {
                           ),
                         )
                         : null,
-                    trailing: const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 16,
-                      color: AppColors.textSecondary,
-                    ),
+                    trailing: item.trailing ??
+                        const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 16,
+                          color: AppColors.textSecondary,
+                        ),
                     onTap: item.onTap,
                   ),
                 ],
@@ -602,12 +619,14 @@ class _MenuItem {
   final IconData icon;
   final String title;
   final String? subtitle;
+  final Widget? trailing;
   final VoidCallback onTap;
 
   _MenuItem({
     required this.icon,
     required this.title,
     this.subtitle,
+    this.trailing,
     required this.onTap,
   });
 }
@@ -675,29 +694,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          widget.title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-          ),
-        ),
-        centerTitle: false,
-        backgroundColor: Colors.white,
-        foregroundColor: AppColors.textPrimary,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: () => _controller.reload(),
-          ),
-        ],
-      ),
+      appBar: CustomAppBar(title: widget.title, showBackButton: true, backgroundColor: AppColors.farmerColor,),
       body: Stack(
         children: [
           WebViewWidget(controller: _controller),

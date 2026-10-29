@@ -9,6 +9,9 @@ class OrdersRepository {
     final url = ApiConfig.getOrdersUrl(status: status);
     final response = await AuthClient.getWithAuth(url);
 
+    final subscriptionError = AuthClient.subscriptionErrorFrom(response);
+    if (subscriptionError != null) throw subscriptionError;
+
     if (response.statusCode != 200) {
       throw Exception(
         "Failed to load orders (${response.statusCode}): ${response.body}",
@@ -34,6 +37,9 @@ class OrdersRepository {
     };
 
     final response = await AuthClient.putWithAuth(url, jsonEncode(payload));
+
+    final subscriptionError = AuthClient.subscriptionErrorFrom(response);
+    if (subscriptionError != null) throw subscriptionError;
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception(

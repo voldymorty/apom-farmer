@@ -137,18 +137,18 @@ class _FarmerLandDetailsScreenState extends State<FarmerLandDetailsScreen>
                 const SizedBox(height: 26),
                 Row(
                   children: [
-                    Expanded(
-                      child: _SheetOption(
-                        icon: Icons.photo_library_rounded,
-                        label: "Gallery",
-                        color: AppColors.farmerColor,
-                        onTap: () {
-                          Navigator.pop(context);
-                          _pickFromSource(ImageSource.gallery);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 14),
+                    // Expanded(
+                    //   child: _SheetOption(
+                    //     icon: Icons.photo_library_rounded,
+                    //     label: "Gallery",
+                    //     color: AppColors.farmerColor,
+                    //     onTap: () {
+                    //       Navigator.pop(context);
+                    //       _pickFromSource(ImageSource.gallery);
+                    //     },
+                    //   ),
+                    // ),
+                    // const SizedBox(width: 14),
                     Expanded(
                       child: _SheetOption(
                         icon: Icons.camera_alt_rounded,

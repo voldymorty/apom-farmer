@@ -7,6 +7,9 @@ import 'package:client/repository/home_repository.dart';
 import 'package:client/screens/Farmer/profile_screen.dart';
 import 'package:client/screens/Farmer/notification_screen.dart';
 import 'package:client/repository/notification_repository.dart';
+import 'package:client/utils/subscription_error_handling.dart';
+import 'package:client/repository/subscription_repository.dart';
+import 'package:client/screens/Farmer/subscription_plan_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -46,7 +49,7 @@ class _FarmerHomeScreenState extends ConsumerState<FarmerHomeScreen> {
     {
       'title': 'Welcome to Apom Farmer',
       'subtitle': 'Better prices for your crops.',
-      'image': 'assets/images/ban1.jpg',
+      'image': 'assets/images/ban1.jpeg',
     },    
     {
       'title': 'From Farm to Market',
@@ -115,6 +118,17 @@ class _FarmerHomeScreenState extends ConsumerState<FarmerHomeScreen> {
     });
   }
 
+  Future<void> _refreshDashboard() async {
+    ref.invalidate(dashboardProvider);
+    ref.invalidate(unreadCountProvider);
+    ref.invalidate(marketDemandProvider(selectedMonth));
+
+    await Future.wait([
+      ref.read(dashboardProvider.future),
+      ref.read(marketDemandProvider(selectedMonth).future),
+    ]);
+  }
+
   // ── Demand helpers ────────────────────────────────────────────
 
   Map<String, double> _demandForMonth(DashboardModel dashboard) {
@@ -151,6 +165,20 @@ class _FarmerHomeScreenState extends ConsumerState<FarmerHomeScreen> {
     return "Estimated demand — actual data available after first full year";
   }
 
+  String _formatEarnings(double amount) {
+    if (amount >= 10000000) {
+      return '${(amount / 10000000).toStringAsFixed(
+        amount % 10000000 == 0 ? 0 : 1,
+      )}Cr';
+    } else if (amount >= 100000) {
+      return '${(amount / 100000).toStringAsFixed(
+        amount % 100000 == 0 ? 0 : 1,
+      )}L';
+    }
+
+    return amount.toStringAsFixed(0);
+  }
+
   List<_CropLegendRow> _buildLegendRows(
       Map<String, double> demandMap, MarketDemandModel? market) {
     if (market != null) {
@@ -180,6 +208,30 @@ class _FarmerHomeScreenState extends ConsumerState<FarmerHomeScreen> {
     }
   }
 
+  Future<void> _openWhatsAppSupport() async {
+    final message = Uri.encodeComponent(
+      "Hello Apom Support, I am a Premium farmer and I need assistance.",
+    );
+    final whatsappSchemeUri =
+        Uri.parse("whatsapp://send?phone=91$_adminPhone&text=$message");
+    final whatsappWebUri =
+        Uri.parse("https://wa.me/91$_adminPhone?text=$message");
+
+    try {
+      if (await canLaunchUrl(whatsappSchemeUri)) {
+        await launchUrl(whatsappSchemeUri,
+            mode: LaunchMode.externalApplication);
+      } else if (await canLaunchUrl(whatsappWebUri)) {
+        await launchUrl(whatsappWebUri,
+            mode: LaunchMode.externalApplication);
+      } else {
+        _contactAdmin();
+      }
+    } catch (_) {
+      _contactAdmin();
+    }
+  }
+
   // ── Build ─────────────────────────────────────────────────────
 
   @override
@@ -196,24 +248,10 @@ class _FarmerHomeScreenState extends ConsumerState<FarmerHomeScreen> {
       ),
       error: (err, _) => Scaffold(
         backgroundColor: AppColors.loginBackground,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "Error loading dashboard:\n$err",
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: () => ref.invalidate(dashboardProvider),
-                  child: const Text("Retry"),
-                ),
-              ],
-            ),
-          ),
+        body: buildApiErrorView(
+          context,
+          error: err,
+          onRetry: () => ref.invalidate(dashboardProvider),
         ),
       ),
       data: (dashboard) {
@@ -223,6 +261,9 @@ class _FarmerHomeScreenState extends ConsumerState<FarmerHomeScreen> {
         final marketDemandAsync =
             ref.watch(marketDemandProvider(selectedMonth));
         final marketDemand = marketDemandAsync.value;
+
+        final subStatusAsync = ref.watch(subscriptionStatusProvider);
+        final isPremium = subStatusAsync.value?.isPremium == true;
 
         final fullName = dashboard.data.fullName.trim();
         final displayName = fullName.isEmpty
@@ -234,380 +275,538 @@ class _FarmerHomeScreenState extends ConsumerState<FarmerHomeScreen> {
         return Scaffold(
           backgroundColor: AppColors.loginBackground,
           body: SafeArea(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(AppSize.width * 0.04),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Header ─────────────────────────────────────
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const FarmerProfileScreen(),
-                          ),
-                        ),
-                        child: CircleAvatar(
-                          radius: AppSize.width * 0.07,
-                          backgroundImage: hasProfilePhoto
-                              ? NetworkImage(profilePhotoUrl)
-                              : null,
-                          backgroundColor:
-                              AppColors.farmerColor.withOpacity(0.2),
-                          child: hasProfilePhoto
-                              ? null
-                              : Icon(Icons.person,
-                                  color: AppColors.farmerColor),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Welcome back,",
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 15,
+            child: Stack(
+              children: [
+                RefreshIndicator(
+                  onRefresh: _refreshDashboard,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      AppSize.width * 0.04,
+                      AppSize.width * 0.04,
+                      AppSize.width * 0.04,
+                      isPremium ? 88 : AppSize.width * 0.04,
+                    ),
+                    child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Header ─────────────────────────────────────
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const FarmerProfileScreen(),
                             ),
                           ),
-                          Text(
-                            displayName,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textPrimary,
-                            ),
+                          child: CircleAvatar(
+                            radius: AppSize.width * 0.07,
+                            backgroundImage: hasProfilePhoto
+                                ? NetworkImage(profilePhotoUrl)
+                                : null,
+                            backgroundColor:
+                                AppColors.farmerColor.withOpacity(0.2),
+                            child: hasProfilePhoto
+                                ? null
+                                : Icon(Icons.person,
+                                    color: AppColors.farmerColor),
                           ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Consumer(
-                        builder: (context, ref, _) {
-                          final unreadCountAsync = ref.watch(unreadCountProvider);
-                          final unreadCount = unreadCountAsync.value ?? 0;
-                          return _NotificationBell(
-                            unreadCount: unreadCount,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const NotificationScreen(),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-
-                  SizedBox(height: AppSize.height * 0.015),
-
-                  // ── Carousel ───────────────────────────────────
-                  SizedBox(
-                    height: 200,
-                    child: _imagesPreloaded
-                        ? Stack(
-                            children: [
-                              PageView.builder(
-                                controller: _carouselController,
-                                itemCount: banners.length,
-                                onPageChanged: (index) =>
-                                    setState(() => _currentPage = index),
-                                itemBuilder: (context, index) {
-                                  final banner = banners[index];
-                                  return Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(24),
-                                      image: DecorationImage(
-                                        image: AssetImage(banner['image']!),
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                    child: Container(
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Welcome back,",
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 15,
+                              ),
+                            ),
+                            Text(
+                              displayName,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        Consumer(
+                          builder: (context, ref, _) {
+                            final unreadCountAsync = ref.watch(unreadCountProvider);
+                            final unreadCount = unreadCountAsync.value ?? 0;
+                            return _NotificationBell(
+                              unreadCount: unreadCount,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const NotificationScreen(),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+              
+                    SizedBox(height: AppSize.height * 0.015),
+              
+                    // ── Carousel ───────────────────────────────────
+                    SizedBox(
+                      height: 200,
+                      child: _imagesPreloaded
+                          ? Stack(
+                              children: [
+                                PageView.builder(
+                                  controller: _carouselController,
+                                  itemCount: banners.length,
+                                  onPageChanged: (index) =>
+                                      setState(() => _currentPage = index),
+                                  itemBuilder: (context, index) {
+                                    final banner = banners[index];
+                                    return Container(
                                       decoration: BoxDecoration(
-                                        borderRadius:
-                                            BorderRadius.circular(24),
-                                        gradient: LinearGradient(
-                                          begin: Alignment.bottomLeft,
-                                          end: Alignment.topRight,
-                                          colors: [
-                                            Colors.black.withOpacity(0.65),
-                                            Colors.transparent,
+                                        borderRadius: BorderRadius.circular(24),
+                                        image: DecorationImage(
+                                          image: AssetImage(banner['image']!),
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(24),
+                                          gradient: LinearGradient(
+                                            begin: Alignment.bottomLeft,
+                                            end: Alignment.topRight,
+                                            colors: [
+                                              Colors.black.withOpacity(0.65),
+                                              Colors.transparent,
+                                            ],
+                                          ),
+                                        ),
+                                        padding: const EdgeInsets.all(20),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              banner['title']!,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 5),
+                                            Text(
+                                              banner['subtitle']!,
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 14,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
-                                      padding: const EdgeInsets.all(20),
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            banner['title']!,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 5),
-                                          Text(
-                                            banner['subtitle']!,
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                              Positioned(
-                                bottom: 20,
-                                left: 32,
-                                child: Row(
-                                  children: List.generate(
-                                    banners.length,
-                                    (index) => AnimatedContainer(
-                                      duration:
-                                          const Duration(milliseconds: 300),
-                                      margin: const EdgeInsets.only(right: 6),
-                                      width: _currentPage == index ? 22 : 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: _currentPage == index
-                                            ? Colors.white
-                                            : Colors.white.withOpacity(0.4),
-                                        borderRadius:
-                                            BorderRadius.circular(20),
+                                    );
+                                  },
+                                ),
+                                Positioned(
+                                  bottom: 20,
+                                  left: 32,
+                                  child: Row(
+                                    children: List.generate(
+                                      banners.length,
+                                      (index) => AnimatedContainer(
+                                        duration:
+                                            const Duration(milliseconds: 300),
+                                        margin: const EdgeInsets.only(right: 6),
+                                        width: _currentPage == index ? 22 : 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: _currentPage == index
+                                              ? Colors.white
+                                              : Colors.white.withOpacity(0.4),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
+                              ],
+                            )
+                          : Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(24),
+                                color:
+                                    AppColors.farmerColor.withOpacity(0.08),
                               ),
-                            ],
-                          )
-                        : Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(24),
-                              color:
-                                  AppColors.farmerColor.withOpacity(0.08),
+                              child: const Center(
+                                child: CircularProgressIndicator(
+                                    color: AppColors.primaryGreen),
+                              ),
                             ),
-                            child: const Center(
-                              child: CircularProgressIndicator(
-                                  color: AppColors.primaryGreen),
+                    ),
+              
+                    SizedBox(height: AppSize.height * 0.025),
+              
+                    // ── Hero earnings card ─────────────────────────
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppColors.farmerColor,
+                            AppColors.farmerColor.withOpacity(0.78),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(22),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.farmerColor.withOpacity(0.3),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  monthNames[dashboard.data.currentMonth - 1]
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white60,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Monthly Earnings',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '₹ ${_formatEarnings(dashboard.data.monthlyEarnings)}',
+                                  style: const TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                    height: 1,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                  ),
-
-                  SizedBox(height: AppSize.height * 0.025),
-
-                  // ── Hero earnings card ─────────────────────────
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          AppColors.farmerColor,
-                          AppColors.farmerColor.withOpacity(0.78),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Icon(
+                              Icons.account_balance_wallet_rounded,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
                         ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.farmerColor.withOpacity(0.3),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
+                    ),
+              
+                    SizedBox(height: AppSize.height * 0.025),
+              
+                    // ── Activity Insights label ────────────────────
+                    const Text(
+                      'Activity Insights',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+              
+                    // ── Stat cards grid ────────────────────────────
+                    GridView.count(
+                      crossAxisCount: 2,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 14,
+                      crossAxisSpacing: 14,
+                      childAspectRatio: 1.50,
+                      children: [
+                        _buildStatCard(
+                          Icons.grass_rounded,
+                          AppColors.farmerColor,
+                          'AVAILABLE',
+                          '${dashboard.data.availableCrops} Crops',
+                        ),
+                        _buildStatCard(
+                          Icons.local_shipping_outlined,
+                          Colors.orange,
+                          'TOTAL SOLD',
+                          '${dashboard.data.totalSoldTons} Tons',
+                        ),
+                        _buildStatCard(
+                          Icons.pending_actions_outlined,
+                          Colors.redAccent,
+                          'PENDING PICKUPS',
+                          '${dashboard.data.pendingPickups}',
+                        ),
+                        _buildStatCard(
+                          Icons.bar_chart_rounded,
+                          Colors.indigo,
+                          'TOTAL EARNINGS',
+                          '₹ ${_formatEarnings(dashboard.data.totalEarnings)}',
                         ),
                       ],
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                monthNames[dashboard.data.currentMonth - 1]
-                                    .toUpperCase(),
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white60,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Monthly Earnings',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white70,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '₹ ${dashboard.data.monthlyEarnings.toStringAsFixed(0)}',
-                                style: const TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.white,
-                                  height: 1,
-                                ),
-                              ),
-                            ],
-                          ),
+              
+                    SizedBox(height: AppSize.height * 0.03),
+              
+                    // ── Weekly pickup chart ────────────────────────
+                    const Text(
+                      "This Week's Pickups",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildWeeklyPickupCard(dashboard.data.weeklyPickups),
+              
+                    SizedBox(height: AppSize.height * 0.03),
+              
+                    // ── Market Demand ──────────────────────────────
+                    const Text(
+                      'Market Demand Insights',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (isPremium)
+                      _buildDemandCard(
+                        dashboard: dashboard,
+                        marketDemand: marketDemand,
+                        apiCurrentMonth: apiCurrentMonth,
+                      )
+                    else
+                      _buildLockedDemandCard(context),
+              
+                    SizedBox(height: AppSize.height * 0.04),
+              
+                    // ── Quick Actions ──────────────────────────────
+                    const Text(
+                      "Quick Actions",
+                      style: TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _contactAdmin,
+                        icon: const Icon(Icons.headset_mic_rounded,
+                            color: Colors.white),
+                        label: const Text(
+                          "Contact Admin",
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, color: Colors.white),
                         ),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.farmerColor,
+                          padding: EdgeInsets.symmetric(
+                              vertical: AppSize.height * 0.022),
+                          shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          child: const Icon(
-                            Icons.account_balance_wallet_rounded,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  SizedBox(height: AppSize.height * 0.025),
-
-                  // ── Activity Insights label ────────────────────
-                  const Text(
-                    'Activity Insights',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── Stat cards grid ────────────────────────────
-                  GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 14,
-                    crossAxisSpacing: 14,
-                    childAspectRatio: 1.50,
-                    children: [
-                      _buildStatCard(
-                        Icons.grass_rounded,
-                        AppColors.farmerColor,
-                        'AVAILABLE',
-                        '${dashboard.data.availableCrops} Crops',
-                      ),
-                      _buildStatCard(
-                        Icons.local_shipping_outlined,
-                        Colors.orange,
-                        'TOTAL SOLD',
-                        '${dashboard.data.totalSoldTons} Tons',
-                      ),
-                      _buildStatCard(
-                        Icons.pending_actions_outlined,
-                        Colors.redAccent,
-                        'PENDING PICKUPS',
-                        '${dashboard.data.pendingPickups}',
-                      ),
-                      _buildStatCard(
-                        Icons.bar_chart_rounded,
-                        Colors.indigo,
-                        'TOTAL EARNINGS',
-                        '₹ ${dashboard.data.totalEarnings.toStringAsFixed(0)}',
-                      ),
-                    ],
-                  ),
-
-                  SizedBox(height: AppSize.height * 0.03),
-
-                  // ── Weekly pickup chart ────────────────────────
-                  const Text(
-                    "This Week's Pickups",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildWeeklyPickupCard(dashboard.data.weeklyPickups),
-
-                  SizedBox(height: AppSize.height * 0.03),
-
-                  // ── Market Demand ──────────────────────────────
-                  const Text(
-                    'Market Demand Insights',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildDemandCard(
-                    dashboard: dashboard,
-                    marketDemand: marketDemand,
-                    apiCurrentMonth: apiCurrentMonth,
-                  ),
-
-                  SizedBox(height: AppSize.height * 0.04),
-
-                  // ── Quick Actions ──────────────────────────────
-                  const Text(
-                    "Quick Actions",
-                    style: TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _contactAdmin,
-                      icon: const Icon(Icons.headset_mic_rounded,
-                          color: Colors.white),
-                      label: const Text(
-                        "Contact Admin",
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.farmerColor,
-                        padding: EdgeInsets.symmetric(
-                            vertical: AppSize.height * 0.022),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                    ),
-                  ),              
-                  
-                  const SizedBox(height: 40),
-                ],
+                    ),              
+                    
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
+            if (isPremium)
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: _buildWhatsAppFloatingButton(),
+              ),
+          ],
+        ),
+      ),
+    );
       },
     );
   }
 
   // ── Widgets ───────────────────────────────────────────────────
+
+  Widget _buildLockedDemandCard(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.farmerColor.withOpacity(0.2),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.farmerColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.lock_rounded,
+              size: 32,
+              color: AppColors.farmerColor,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.farmerColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              "PREMIUM FEATURE",
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: AppColors.farmerColor,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "Exclusive Market Demand Insights",
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "Unlock upcoming monthly crop demand forecasts, and intelligent market suggestions to maximize your earnings.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12.5,
+              color: AppColors.textSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.farmerColor,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const SubscriptionPlanScreen(),
+                  ),
+                );
+                ref.invalidate(subscriptionStatusProvider);
+              },
+              icon: const Icon(Icons.workspace_premium_rounded,
+                  color: Colors.white, size: 18),
+              label: const Text(
+                "Upgrade to Premium",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWhatsAppFloatingButton() {
+    return Material(
+      elevation: 6,
+      shadowColor: const Color(0xFF25D366).withOpacity(0.4),
+      shape: const CircleBorder(),
+      color: const Color(0xFF25D366),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: _openWhatsAppSupport,
+        child: Container(
+          width: 56,
+          height: 56,
+          child: Image.asset(
+            'assets/images/whatsapp.png',
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => Image.asset(
+              'assets/images/whatsapp.png',
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.chat_bubble_rounded,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildStatCard(
     IconData icon,

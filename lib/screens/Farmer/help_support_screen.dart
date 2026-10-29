@@ -1,3 +1,4 @@
+import 'package:client/widgets/custom_app_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:client/global/colortheme.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -25,20 +26,7 @@ class HelpSupportFarmerScreen extends StatelessWidget {
     AppSize.init(context);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: AppColors.textPrimary),
-        title: const Text(
-          "Help & Support",
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
-            letterSpacing: -0.3,
-          ),
-        ),
-      ),
+      appBar: CustomAppBar(title: "Help & Support", showBackButton: true, backgroundColor: AppColors.farmerColor,),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -76,7 +64,7 @@ class HelpSupportFarmerScreen extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Image.asset(
-              'assets/images/f_logo.png',
+              'assets/images/apom_farmer_c.png',
               height: 150,
             ),
           ),

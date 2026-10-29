@@ -216,19 +216,19 @@ class AccountSettingScreen extends ConsumerWidget {
                 // ---- Danger Zone: Delete Account ----
                 _SectionLabel(text: "DANGER ZONE"),
                 const SizedBox(height: 12),
-                _GlassCard(
-                  borderColor: Colors.red.withOpacity(0.25),
-                  child: _SettingsTile(
-                    icon: Icons.delete_forever_rounded,
-                    title: "Delete Account",
-                    subtitle: "Permanently deactivate your account",
-                    iconColor: Colors.redAccent,
-                    titleColor: Colors.redAccent,
-                    onTap: () => _showDeleteAccountDialog(context, ref),
-                  ),
-                ),
+                // _GlassCard(
+                //   borderColor: Colors.red.withOpacity(0.25),
+                //   child: _SettingsTile(
+                //     icon: Icons.delete_forever_rounded,
+                //     title: "Delete Account",
+                //     subtitle: "Permanently deactivate your account",
+                //     iconColor: Colors.redAccent,
+                //     titleColor: Colors.redAccent,
+                //     onTap: () => _showDeleteAccountDialog(context, ref),
+                //   ),
+                // ),
 
-                const SizedBox(height: 20),
+                // const SizedBox(height: 20),
 
                 // ---- Logout ----
                 _GlassCard(

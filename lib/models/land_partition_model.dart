@@ -20,6 +20,13 @@ int _asInt(dynamic value) {
 
 String _asString(dynamic value) => value?.toString() ?? "";
 
+double _asDouble(dynamic value) {
+  if (value is double) return value;
+  if (value is int) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? 0;
+  return 0;
+}
+
 bool _asBool(dynamic value) {
     if (value is bool) return value;
     if (value is num) return value != 0;
@@ -65,9 +72,12 @@ class LandPartitionModel {
 class Datum {
     int segmentId;
     int farmerId;
+    int? productId;
     String cropName;
     String areaValue;
     String areaUnit;
+    String? expectedYieldValue;
+    String? expectedYieldUnit;
     DateTime plantationDate;
     DateTime harvestingDate;
     String status;
@@ -77,9 +87,12 @@ class Datum {
     Datum({
         required this.segmentId,
         required this.farmerId,
+        this.productId,
         required this.cropName,
         required this.areaValue,
         required this.areaUnit,
+        this.expectedYieldValue,
+        this.expectedYieldUnit,
         required this.plantationDate,
         required this.harvestingDate,
         required this.status,
@@ -90,9 +103,12 @@ class Datum {
     factory Datum.fromJson(Map<String, dynamic> json) => Datum(
         segmentId: _asInt(json["segment_id"]),
         farmerId: _asInt(json["farmer_id"]),
+        productId: json["product_id"] == null ? null : _asInt(json["product_id"]),
         cropName: _asString(json["crop_name"]),
         areaValue: _asString(json["area_value"]),
         areaUnit: _asString(json["area_unit"]),
+        expectedYieldValue: json["expected_yield_value"] == null ? null : _asString(json["expected_yield_value"]),
+        expectedYieldUnit: json["expected_yield_unit"] == null ? null : _asString(json["expected_yield_unit"]),
         plantationDate: _asDateTime(json["plantation_date"]),
         harvestingDate: _asDateTime(json["harvesting_date"]),
         status: _asString(json["status"]),
@@ -103,9 +119,12 @@ class Datum {
     Map<String, dynamic> toJson() => {
         "segment_id": segmentId,
         "farmer_id": farmerId,
+        "product_id": productId,
         "crop_name": cropName,
         "area_value": areaValue,
         "area_unit": areaUnit,
+        "expected_yield_value": expectedYieldValue,
+        "expected_yield_unit": expectedYieldUnit,
         "plantation_date": "${plantationDate.year.toString().padLeft(4, '0')}-${plantationDate.month.toString().padLeft(2, '0')}-${plantationDate.day.toString().padLeft(2, '0')}",
         "harvesting_date": "${harvestingDate.year.toString().padLeft(4, '0')}-${harvestingDate.month.toString().padLeft(2, '0')}-${harvestingDate.day.toString().padLeft(2, '0')}",
         "status": status,
@@ -115,10 +134,10 @@ class Datum {
 }
 
 class Summary {
-    int totalLand;
+    double totalLand;
     String landUnit;
-    int allocatedLand;
-    int availableLand;
+    double allocatedLand;
+    double availableLand;
     int activeCount;
     int fallowCount;
     int harvestedCount;
@@ -136,10 +155,10 @@ class Summary {
     });
 
     factory Summary.fromJson(Map<String, dynamic> json) => Summary(
-        totalLand: _asInt(json["total_land"]),
+        totalLand: _asDouble(json["total_land"]),
         landUnit: _asString(json["land_unit"]),
-        allocatedLand: _asInt(json["allocated_land"]),
-        availableLand: _asInt(json["available_land"]),
+        allocatedLand: _asDouble(json["allocated_land"]),
+        availableLand: _asDouble(json["available_land"]),
         activeCount: _asInt(json["active_count"]),
         fallowCount: _asInt(json["fallow_count"]),
         harvestedCount: _asInt(json["harvested_count"]),

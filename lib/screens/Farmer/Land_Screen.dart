@@ -1,6 +1,9 @@
 import 'package:client/global/colortheme.dart';
+import 'package:client/models/crop_catogory_model.dart' as crop_catalog;
 import 'package:client/models/land_partition_model.dart';
+import 'package:client/repository/add_pickup_repository.dart';
 import 'package:client/repository/land_repository.dart';
+import 'package:client/widgets/crop_picker_sheet.dart';
 import 'package:client/widgets/custom_app_bar.dart';
 import 'package:client/widgets/custom_snackbar.dart';
 import 'package:client/widgets/custom_text_field.dart';
@@ -29,12 +32,30 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
   int _nextParcelId = 1;
   String? _apiLandUnit;
   bool _apiSynced = false;
+  Summary? _summary;
+
+  List<crop_catalog.Datum> _cropCategories = [];
+  bool _cropCategoriesLoading = false;
 
   @override
   void initState() {
     super.initState();
     _parcels = _buildInitialParcels();
     _ensureParcelIds();
+    _loadCropCategories();
+  }
+
+  Future<void> _loadCropCategories() async {
+    setState(() => _cropCategoriesLoading = true);
+    try {
+      final repo = AddPickupRepository();
+      final result = await repo.getCropCategories();
+      if (mounted) setState(() => _cropCategories = result.data);
+    } catch (e) {
+      if (mounted) CustomSnackBar.error(context, 'Failed to load crops: $e');
+    } finally {
+      if (mounted) setState(() => _cropCategoriesLoading = false);
+    }
   }
 
   List<Map<String, dynamic>> _buildInitialParcels() {
@@ -51,6 +72,9 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
         'areaValue': areaValue,
         'areaUnit': areaUnit,
         'crop': crop,
+        'productId': raw['product_id'] ?? raw['productId'],
+        'expectedYieldValue': (raw['expected_yield_value'] as num?)?.toDouble(),
+        'expectedYieldUnit': raw['expected_yield_unit']?.toString() ?? 'kg',
         'status': parsedStatus,
         'updated': 'Imported from partition',
         'isLocal': true,
@@ -116,6 +140,11 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
         'areaValue': _parseAreaValue(segment.areaValue),
         'areaUnit': unit,
         'crop': cropName,
+        'productId': segment.productId,
+        'expectedYieldValue': segment.expectedYieldValue != null
+            ? double.tryParse(segment.expectedYieldValue!)
+            : null,
+        'expectedYieldUnit': segment.expectedYieldUnit ?? 'kg',
         'status': _normalizeStatus(segment.status),
         'updated': 'Synced from server',
         'isLocal': false,
@@ -131,6 +160,7 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
     setState(() {
       _parcels = parcels;
       _apiLandUnit = model.summary.landUnit;
+      _summary = model.summary;
       _apiSynced = true;
       _ensureParcelIds();
     });
@@ -173,8 +203,24 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
   }
 
   double get _totalArea => _parcels.fold<double>(0.0, (sum, item) => sum + _parseAreaValue(item['areaValue']));
-  double get _activeArea => _parcels.where((item) => item['status'] == 'Active').fold<double>(0.0, (sum, item) => sum + _parseAreaValue(item['areaValue']));
-  double get _fallowArea => _parcels.where((item) => item['status'] == 'Fallow').fold<double>(0.0, (sum, item) => sum + _parseAreaValue(item['areaValue']));
+
+  // Farmer's real total land. Falls back to the constructor value (from
+  // onboarding) until the land-partition summary has loaded from the API.
+  double get _farmerTotalLand => _summary?.totalLand ?? widget.totalLand;
+
+  // Cultivated = everything currently allocated to a crop partition
+  // (regardless of active/harvested), matching Total = Cultivated + Fallow.
+  double get _cultivatedLand => _summary?.allocatedLand ?? _totalArea;
+
+  // Fallow is derived, never manually entered: whatever isn't cultivated.
+  double get _computedFallowLand {
+    if (_summary != null) return _summary!.availableLand;
+    final remaining = _farmerTotalLand - _totalArea;
+    return remaining < 0 ? 0.0 : remaining;
+  }
+
+  // How much more land can still be allocated to crops right now.
+  double get _availableRoomForNewParcel => _farmerTotalLand - _totalArea;
 
   Color _statusColor(String status) {
     switch (status) {
@@ -195,6 +241,16 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
     final parsed = _parseDate(value);
     if (parsed == null) return 'Not set';
     return MaterialLocalizations.of(context).formatMediumDate(parsed);
+  }
+
+  Future<void> _refreshLandData() async {
+    setState(() {
+      _apiSynced = false;
+    });
+
+    ref.invalidate(landPartitionProvider);
+
+    await ref.read(landPartitionProvider.future);
   }
 
   Widget _buildGlassContainer({required Widget child, double? margin}) {
@@ -227,52 +283,60 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
     );
   }
 
-  Widget _buildStatsCard(String label, String value, IconData icon) {
+  Widget _buildStatsCard(String label, String value, IconData icon, {VoidCallback? onTap}) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withValues(alpha: 0.95),
-              Colors.white.withValues(alpha: 0.88),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 16, color: AppColors.farmerColor.withValues(alpha: 0.7)),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary.withValues(alpha: 0.8),
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.3,
-                  ),
-                ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withValues(alpha: 0.95),
+                Colors.white.withValues(alpha: 0.88),
               ],
             ),
-            const SizedBox(height: 5),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 16,
-                color: AppColors.farmerColor,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.3,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 16, color: AppColors.farmerColor.withValues(alpha: 0.7)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary.withValues(alpha: 0.8),
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  if (onTap != null)
+                    Icon(Icons.edit_rounded, size: 13, color: AppColors.farmerColor.withValues(alpha: 0.6)),
+                ],
               ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+              const SizedBox(height: 5),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: AppColors.farmerColor,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -385,11 +449,16 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
               children: [
-                _buildStatsCard('Total Land', '${_totalArea.toStringAsFixed(1)} $_primaryUnit', Icons.terrain_rounded),
+                _buildStatsCard(
+                  'Total Land',
+                  '${_farmerTotalLand.toStringAsFixed(1)} $_primaryUnit',
+                  Icons.terrain_rounded,
+                  onTap: _showEditTotalLandSheet,
+                ),
                 const SizedBox(width: 10),
-                _buildStatsCard('Active', '${_activeArea.toStringAsFixed(1)} $_primaryUnit', Icons.check_circle_outline),
+                _buildStatsCard('Cultivated', '${_cultivatedLand.toStringAsFixed(1)} $_primaryUnit', Icons.check_circle_outline),
                 const SizedBox(width: 10),
-                _buildStatsCard('Fallow', '${_fallowArea.toStringAsFixed(1)} $_primaryUnit', Icons.hourglass_empty),
+                _buildStatsCard('Fallow', '${_computedFallowLand.toStringAsFixed(1)} $_primaryUnit', Icons.hourglass_empty),
               ],
             ),
           ),
@@ -432,259 +501,301 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
 
           // List Section
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              itemCount: _filteredParcels.length + 1,
-              itemBuilder: (context, index) {
-                if (index == _filteredParcels.length) {
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 20,bottom: 15),
-                    child: ElevatedButton.icon(
-                      onPressed: _addParcel,
-                      icon: const Icon(Icons.add_rounded, size: 20),
-                      label: const Text('Add New Plot', style: TextStyle(fontWeight: FontWeight.w600)),
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(50),
-                        backgroundColor: AppColors.farmerColor,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: RefreshIndicator(
+              onRefresh: _refreshLandData,
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                itemCount: _filteredParcels.length + 1,
+                itemBuilder: (context, index) {
+                  if (index == _filteredParcels.length) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 20,bottom: 15),
+                      child: ElevatedButton.icon(
+                        onPressed: _addParcel,
+                        icon: const Icon(Icons.add_rounded, size: 20),
+                        label: const Text('Add New Plot', style: TextStyle(fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(50),
+                          backgroundColor: AppColors.farmerColor,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        ),
                       ),
-                    ),
-                  );
-                }
-
-                final item = _filteredParcels[index];
-                final parcelId = item['id'] as int?;
-                final status = item['status'].toString();
-                final statusColor = _statusColor(status);
-                final cropName = item['crop']?.toString() ?? 'Not set';
-                final areaValue = _parseAreaValue(item['areaValue']);
-                final areaText = '${areaValue.toStringAsFixed(2)} ${item['areaUnit']}';
-                final plantationText = _displayDate(item['plantationDate']);
-                final harvestingText = _displayDate(item['harvestingDate']);
-
-                return _buildGlassContainer(
-                  margin: 3,
-                  child: Column(
-                    children: [
-                      // Header Section
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              AppColors.farmerColor,
-                              AppColors.farmerColor.withValues(alpha: 0.85),
+                    );
+                  }
+              
+                  final item = _filteredParcels[index];
+                  final parcelId = item['id'] as int?;
+                  final status = item['status'].toString();
+                  final statusColor = _statusColor(status);
+                  final cropName = item['crop']?.toString() ?? 'Not set';
+                  final areaValue = _parseAreaValue(item['areaValue']);
+                  final areaText = '${areaValue.toStringAsFixed(2)} ${item['areaUnit']}';
+                  final expectedYieldValue = item['expectedYieldValue'] as double?;
+                  final expectedYieldUnit = item['expectedYieldUnit']?.toString() ?? 'kg';
+                  final plantationText = _displayDate(item['plantationDate']);
+                  final harvestingText = _displayDate(item['harvestingDate']);
+              
+                  return _buildGlassContainer(
+                    margin: 3,
+                    child: Column(
+                      children: [
+                        // Header Section
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppColors.farmerColor,
+                                AppColors.farmerColor.withValues(alpha: 0.85),
+                              ],
+                            ),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
+                                ),
+                                child: Icon(Icons.terrain_rounded, color: Colors.white, size: 26),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item['name'].toString(),
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                        letterSpacing: -0.3,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.grass_rounded, size: 12, color: Colors.white.withValues(alpha: 0.8)),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            cropName,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.white.withValues(alpha: 0.8),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(30),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: parcelId == null ? null : () => _deleteParcel(parcelId),
+                                borderRadius: BorderRadius.circular(30),
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(30),
+                                  ),
+                                  child: Icon(Icons.delete_outline, size: 18, color: Colors.white.withValues(alpha: 0.9)),
+                                ),
+                              ),
                             ],
                           ),
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                         ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-                              ),
-                              child: Icon(Icons.terrain_rounded, color: Colors.white, size: 26),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item['name'].toString(),
-                                    style: const TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white,
-                                      letterSpacing: -0.3,
+              
+                        // Content Section
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              // Area Badge
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.farmerColor.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: AppColors.farmerColor.withValues(alpha: 0.15)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.square_foot_rounded, size: 16, color: AppColors.farmerColor.withValues(alpha: 0.7)),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Area: ',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: AppColors.textSecondary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                    Text(
+                                      areaText,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.farmerColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              if (expectedYieldValue != null) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.orange.withValues(alpha: 0.2)),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Row(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.grass_rounded, size: 12, color: Colors.white.withValues(alpha: 0.8)),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          cropName,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.white.withValues(alpha: 0.8),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                      Icon(Icons.grain_rounded, size: 16, color: Colors.orange.withValues(alpha: 0.8)),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Expected Yield: ',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: AppColors.textSecondary,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${expectedYieldValue.toStringAsFixed(2)} $expectedYieldUnit',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.deepOrange,
                                         ),
                                       ),
                                     ],
                                   ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(30),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-                              ),
-                              child: Text(
-                                status,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
                                 ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: parcelId == null ? null : () => _deleteParcel(parcelId),
-                              borderRadius: BorderRadius.circular(30),
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
+                              ],
+              
+                              const SizedBox(height: 16),
+              
+                              // Dates Section
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(30),
+                                  color: Colors.grey.withValues(alpha: 0.03),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
                                 ),
-                                child: Icon(Icons.delete_outline, size: 18, color: Colors.white.withValues(alpha: 0.9)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Content Section
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            // Area Badge
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: AppColors.farmerColor.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppColors.farmerColor.withValues(alpha: 0.15)),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.square_foot_rounded, size: 16, color: AppColors.farmerColor.withValues(alpha: 0.7)),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Area: ',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: AppColors.textSecondary,
-                                      fontWeight: FontWeight.w500,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(Icons.event_available_rounded, size: 14, color: AppColors.textSecondary),
+                                              const SizedBox(width: 6),
+                                              Text('Planted', style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            plantationText,
+                                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  Text(
-                                    areaText,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppColors.farmerColor,
+                                    Container(width: 1, height: 30, color: Colors.grey.withValues(alpha: 0.2)),
+                                    Expanded(
+                                      child: Column(
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(Icons.event_repeat_rounded, size: 14, color: AppColors.textSecondary),
+                                              const SizedBox(width: 6),
+                                              Text('Harvest', style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            harvestingText,
+                                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(height: 16),
-
-                            // Dates Section
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.withValues(alpha: 0.03),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(Icons.event_available_rounded, size: 14, color: AppColors.textSecondary),
-                                            const SizedBox(width: 6),
-                                            Text('Planted', style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          plantationText,
-                                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(width: 1, height: 30, color: Colors.grey.withValues(alpha: 0.2)),
-                                  Expanded(
-                                    child: Column(
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(Icons.event_repeat_rounded, size: 14, color: AppColors.textSecondary),
-                                            const SizedBox(width: 6),
-                                            Text('Harvest', style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          harvestingText,
-                                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(height: 16),
-
-                            // Action Button
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: parcelId == null ? null : () => _updateParcel(parcelId),
-                                icon: Icon(Icons.edit_outlined, size: 18),
-                                label: Text('Edit Details', style: TextStyle(fontWeight: FontWeight.w600)),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.farmerColor,
-                                  side: BorderSide(color: AppColors.farmerColor.withValues(alpha: 0.4)),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ],
                                 ),
                               ),
-                            ),
-                          ],
+              
+                              const SizedBox(height: 16),
+              
+                              // Action Button
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: parcelId == null ? null : () => _updateParcel(parcelId),
+                                  icon: Icon(Icons.edit_outlined, size: 18),
+                                  label: Text('Edit Details', style: TextStyle(fontWeight: FontWeight.w600)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.farmerColor,
+                                    side: BorderSide(color: AppColors.farmerColor.withValues(alpha: 0.4)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -697,16 +808,28 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
     Map<String, dynamic>? initialData,
     required String title,
     required String actionLabel,
+    // How much more land can be allocated in this form. For edits this
+    // already accounts for the parcel's own current area (i.e. it's the
+    // max this parcel's area field may hold, not just the leftover room).
+    required double maxAllowedArea,
   }) async {
     final formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController(text: initialData?['name']?.toString() ?? '');
+    // final nameController = TextEditingController(text: initialData?['name']?.toString() ?? '');
     final areaController = TextEditingController(text: (initialData?['areaValue'] ?? '').toString());
-    final cropController = TextEditingController(text: initialData?['crop']?.toString() ?? '');
+    final yieldController = TextEditingController(
+      text: initialData?['expectedYieldValue'] != null ? initialData!['expectedYieldValue'].toString() : '',
+    );
 
     String selectedStatus = _normalizeStatus(initialData?['status']?.toString() ?? 'Active');
+    if (selectedStatus == 'Fallow') selectedStatus = 'Active'; // fallow is derived, not user-selectable
     String selectedUnit = _normalizeUnit(initialData?['areaUnit']?.toString() ?? _primaryUnit);
+    String selectedYieldUnit = initialData?['expectedYieldUnit']?.toString() ?? 'kg';
     DateTime? selectedPlantationDate = _parseDate(initialData?['plantationDate']);
     DateTime? selectedHarvestingDate = _parseDate(initialData?['harvestingDate']);
+
+    int? selectedProductId = initialData?['productId'] as int?;
+    String? selectedProductName = initialData?['crop']?.toString();
+    String? selectedCategoryName;
 
     return showModalBottomSheet<Map<String, dynamic>>(
       context: context,
@@ -756,14 +879,14 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      CustomTextField(
-                        controller: nameController,
-                        label: 'Plot Name',
-                        hintText: 'Enter plot name',
-                        prefixIcon: Icons.terrain_rounded,
-                        validator: (value) => (value == null || value.trim().isEmpty) ? 'Enter plot name' : null,
-                      ),
-                      const SizedBox(height: 14),
+                      // CustomTextField(
+                      //   controller: nameController,
+                      //   label: 'Plot Name',
+                      //   hintText: 'Enter plot name',
+                      //   prefixIcon: Icons.terrain_rounded,
+                      //   validator: (value) => (value == null || value.trim().isEmpty) ? 'Enter plot name' : null,
+                      // ),
+                      // const SizedBox(height: 14),
                       Row(
                         children: [
                           Expanded(
@@ -792,12 +915,89 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      CustomTextField(
-                        controller: cropController,
-                        label: 'Current Crop',
-                        hintText: 'Enter crop name',
-                        prefixIcon: Icons.grass_rounded,
-                        validator: (value) => (value == null || value.trim().isEmpty) ? 'Enter crop name' : null,
+                      Text(
+                        'Crop',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () async {
+                          final selection = await showCropPickerSheet(
+                            context,
+                            categories: _cropCategories,
+                            categoriesLoading: _cropCategoriesLoading,
+                          );
+                          if (selection == null) return;
+                          setSheetState(() {
+                            selectedProductId = selection.productId;
+                            selectedProductName = selection.productName;
+                            selectedCategoryName = selection.categoryName;
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: selectedProductId != null
+                                  ? AppColors.farmerColor.withValues(alpha: 0.55)
+                                  : Colors.grey.withValues(alpha: 0.2),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.grass_rounded, size: 18,
+                                  color: selectedProductId != null ? AppColors.farmerColor : AppColors.textSecondary),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: selectedProductId != null
+                                    ? Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(selectedProductName ?? '',
+                                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.farmerColor)),
+                                          if (selectedCategoryName != null)
+                                            Text(selectedCategoryName!,
+                                                style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                                        ],
+                                      )
+                                    : Text('Select crop / product',
+                                        style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
+                              ),
+                              Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: CustomTextField(
+                              controller: yieldController,
+                              label: 'Expected Yield',
+                              hintText: 'Enter expected quantity',
+                              prefixIcon: Icons.grain_rounded,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              validator: (value) {
+                                final yieldValue = double.tryParse((value ?? '').trim());
+                                return (yieldValue == null || yieldValue <= 0) ? 'Enter valid yield' : null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _customDropdownField(
+                              label: 'Unit',
+                              value: selectedYieldUnit,
+                              options: const ['kg', 'ton'],
+                              onChanged: (value) => setSheetState(() => selectedYieldUnit = value),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 14),
                       Row(
@@ -808,10 +1008,11 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
                               value: selectedPlantationDate,
                               icon: Icons.event_available_rounded,
                               onTap: () async {
+                                final now = DateTime.now();
                                 final picked = await showDatePicker(
                                   context: context,
                                   initialDate: selectedPlantationDate ?? DateTime.now(),
-                                  firstDate: DateTime(2000),
+                                  firstDate: now.subtract(const Duration(days: 30)),
                                   lastDate: DateTime(2100),
                                 );
                                 if (picked != null) {
@@ -853,8 +1054,13 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
                       _customDropdownField(
                         label: 'Status',
                         value: selectedStatus,
-                        options: const ['Active', 'Fallow', 'Harvested'],
+                        options: const ['Active', 'Harvested'],
                         onChanged: (value) => setSheetState(() => selectedStatus = value),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Unallocated land is automatically fallow — it isn\'t set here.',
+                        style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
                       ),
                       const SizedBox(height: 20),
                       SizedBox(
@@ -866,9 +1072,25 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
                               CustomSnackBar.error(context, 'Please fill all required fields');
                               return;
                             }
+                            if (selectedProductId == null) {
+                              CustomSnackBar.error(context, 'Please select a crop');
+                              return;
+                            }
                             final parsedArea = double.tryParse(areaController.text.trim());
                             if (parsedArea == null || parsedArea <= 0) {
                               CustomSnackBar.error(context, 'Please enter a valid land area');
+                              return;
+                            }
+                            if (parsedArea - maxAllowedArea > 0.01) {
+                              CustomSnackBar.error(
+                                context,
+                                'This exceeds the farmer\'s available land by ${(parsedArea - maxAllowedArea).toStringAsFixed(2)} $_primaryUnit',
+                              );
+                              return;
+                            }
+                            final parsedYield = double.tryParse(yieldController.text.trim());
+                            if (parsedYield == null || parsedYield <= 0) {
+                              CustomSnackBar.error(context, 'Please enter a valid expected yield');
                               return;
                             }
                             if (selectedPlantationDate == null || selectedHarvestingDate == null) {
@@ -880,10 +1102,13 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
                               return;
                             }
                             Navigator.of(sheetContext).pop(<String, dynamic>{
-                              'name': nameController.text.trim(),
+                              'name': '${selectedProductName ?? ''} Plot',
                               'areaValue': parsedArea,
                               'areaUnit': selectedUnit,
-                              'crop': cropController.text.trim(),
+                              'crop': selectedProductName ?? '',
+                              'productId': selectedProductId,
+                              'expectedYieldValue': parsedYield,
+                              'expectedYieldUnit': selectedYieldUnit,
                               'status': selectedStatus,
                               'updated': 'Updated just now',
                               'plantationDate': selectedPlantationDate!.toIso8601String(),
@@ -994,8 +1219,93 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
     );
   }
 
+  Future<void> _showEditTotalLandSheet() async {
+    final controller = TextEditingController(text: _farmerTotalLand.toStringAsFixed(2));
+    final formKey = GlobalKey<FormState>();
+    final unit = _primaryUnit;
+    final cultivated = _cultivatedLand;
+
+    final newTotal = await showModalBottomSheet<double>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.loginBackground,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20, right: 20, top: 20,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+          ),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Edit Total Land', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                const SizedBox(height: 6),
+                Text(
+                  'Currently cultivated: ${cultivated.toStringAsFixed(2)} $unit. Total land can\'t go below this.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                CustomTextField(
+                  controller: controller,
+                  label: 'Total Land ($unit)',
+                  hintText: 'Enter total land',
+                  prefixIcon: Icons.terrain_rounded,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (value) {
+                    final v = double.tryParse((value ?? '').trim());
+                    if (v == null || v <= 0) return 'Enter a valid land size';
+                    if (v - cultivated < -0.01) return 'Can\'t be less than cultivated land';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      if (!formKey.currentState!.validate()) return;
+                      Navigator.of(sheetContext).pop(double.parse(controller.text.trim()));
+                    },
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      backgroundColor: AppColors.farmerColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (newTotal == null) return;
+
+    try {
+      await ref.read(landRepoProvider).updateTotalLand(
+        totalLand: newTotal,
+        landUnit: _unitToApi(unit),
+      );
+      ref.invalidate(landPartitionProvider);
+      if (mounted) CustomSnackBar.success(context, 'Total land updated');
+    } catch (e) {
+      if (mounted) CustomSnackBar.error(context, e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
   Future<void> _addParcel() async {
-    final created = await _showParcelForm(title: 'Add Land Plot', actionLabel: 'Save Plot');
+    final created = await _showParcelForm(
+      title: 'Add Land Plot',
+      actionLabel: 'Save Plot',
+      maxAllowedArea: _availableRoomForNewParcel < 0 ? 0 : _availableRoomForNewParcel,
+    );
     if (created == null) return;
     final plantationDate = _parseDate(created['plantationDate']);
     final harvestingDate = _parseDate(created['harvestingDate']);
@@ -1003,11 +1313,18 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
       CustomSnackBar.error(context, 'Missing plantation/harvesting dates');
       return;
     }
+    final productId = created['productId'] as int?;
+    if (productId == null) {
+      CustomSnackBar.error(context, 'Please select a crop');
+      return;
+    }
     try {
       await ref.read(landRepoProvider).createLandPartition(
-        cropName: (created['crop'] ?? '').toString(),
+        productId: productId,
         areaValue: _parseAreaValue(created['areaValue']),
         areaUnit: _unitToApi((created['areaUnit'] ?? _primaryUnit).toString()),
+        expectedYieldValue: (created['expectedYieldValue'] as num?)?.toDouble(),
+        expectedYieldUnit: created['expectedYieldUnit']?.toString() ?? 'kg',
         plantationDate: plantationDate,
         harvestingDate: harvestingDate,
         status: (created['status'] ?? '').toString().toLowerCase(),
@@ -1033,26 +1350,36 @@ class _LandManageScreenState extends ConsumerState<LandManageScreen> {
       CustomSnackBar.error(context, 'Unable to update this plot');
       return;
     }
+    final existingArea = _parseAreaValue(_parcels[parcelIndex]['areaValue']);
+    final maxAllowedArea = _availableRoomForNewParcel + existingArea;
     final updated = await _showParcelForm(
       initialData: _parcels[parcelIndex],
       title: 'Update Land Plot',
       actionLabel: 'Save Changes',
+      maxAllowedArea: maxAllowedArea < 0 ? 0 : maxAllowedArea,
     );
     if (updated == null) return;
     final isLocal = _parcels[parcelIndex]['isLocal'] == true;
     final plantationDate = _parseDate(updated['plantationDate']);
     final harvestingDate = _parseDate(updated['harvestingDate']);
+    final productId = updated['productId'] as int?;
     if (!isLocal) {
       if (plantationDate == null || harvestingDate == null) {
         CustomSnackBar.error(context, 'Missing plantation/harvesting dates');
         return;
       }
+      if (productId == null) {
+        CustomSnackBar.error(context, 'Please select a crop');
+        return;
+      }
       try {
         await ref.read(landRepoProvider).updateLandPartition(
           segmentId: parcelId,
-          cropName: (updated['crop'] ?? '').toString(),
+          productId: productId,
           areaValue: _parseAreaValue(updated['areaValue']),
           areaUnit: _unitToApi((updated['areaUnit'] ?? _primaryUnit).toString()),
+          expectedYieldValue: (updated['expectedYieldValue'] as num?)?.toDouble(),
+          expectedYieldUnit: updated['expectedYieldUnit']?.toString() ?? 'kg',
           plantationDate: plantationDate,
           harvestingDate: harvestingDate,
           status: (updated['status'] ?? '').toString().toLowerCase(),

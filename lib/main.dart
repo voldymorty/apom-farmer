@@ -37,8 +37,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Initialize AppSize HERE where context is available
-    // AppSize.init(context); // Uncomment if you have AppSize class
 
     return MaterialApp(
       navigatorKey: NotificationService.navigatorKey,

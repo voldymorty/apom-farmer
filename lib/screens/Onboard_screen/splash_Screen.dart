@@ -8,7 +8,8 @@ import 'package:client/utils/app_storage.dart';
 import 'package:client/utils/token_storage.dart';
 import 'package:flutter/material.dart';
 
-import '../../global/colortheme.dart';
+import 'package:client/screens/Onboard_screen/account_deactivated_screen.dart';
+import 'package:client/global/colortheme.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -55,7 +56,15 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       final details = await ProfileRepository().getProfileDetails();
-      if (!mounted) return;
+      if (!details.data.isActive) {
+        await TokenStorage.clearToken();
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AccountDeactivatedScreen()),
+        );
+        return;
+      }
 
       if (details.data.profileComplete) {
         final profile = details.data.profile;
@@ -131,7 +140,7 @@ class _SplashScreenState extends State<SplashScreen>
             child: ScaleTransition(
               scale: _scaleAnimation,
               child: Image.asset(
-                "assets/images/f_logo.png",
+                "assets/images/apom_farmer_c.png",
                 width: 250,
                 height: 250,
               ),

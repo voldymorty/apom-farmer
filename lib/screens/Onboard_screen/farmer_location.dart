@@ -69,16 +69,40 @@ class _FarmerLocationScreenState extends ConsumerState<FarmerLocationScreen>
     super.dispose();
   }
 
+  // Future<void> _pickMapLocation() async {
+  //   final result = await Navigator.push(
+  //     context,
+  //     MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
+  //   );
+  //   if (result != null && result is Map<String, dynamic>) {
+  //     setState(() {
+  //       _mapAddress = result['address'] ?? '';
+  //       _latitude = result['latitude'];
+  //       _longitude = result['longitude'];
+  //     });
+  //   }
+  // }
+
   Future<void> _pickMapLocation() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
+      MaterialPageRoute(
+        builder: (_) => const LocationPickerScreen(),
+      ),
     );
+
     if (result != null && result is Map<String, dynamic>) {
       setState(() {
         _mapAddress = result['address'] ?? '';
         _latitude = result['latitude'];
         _longitude = result['longitude'];
+
+        final detectedPincode = result['pincode']?.toString();
+
+        if (detectedPincode != null &&
+            RegExp(r'^\d{6}$').hasMatch(detectedPincode)) {
+          _pincodeController.text = detectedPincode;
+        }
       });
     }
   }

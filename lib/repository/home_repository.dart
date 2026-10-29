@@ -10,6 +10,9 @@ class HomeRepository {
 
     final response = await AuthClient.getWithAuth(url);
 
+    final subscriptionError = AuthClient.subscriptionErrorFrom(response);
+    if (subscriptionError != null) throw subscriptionError;
+
     if (response.statusCode != 200) {
       throw Exception(
         "Failed to load dashboard (${response.statusCode}): ${response.body}",

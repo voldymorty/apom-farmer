@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:client/screens/Onboard_screen/reg_otp_Screen.dart';
 import 'package:client/global/colortheme.dart';
 import 'package:client/widgets/custom_snackbar.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:client/repository/login_repository.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,6 +15,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen>
     with TickerProviderStateMixin {
+  static const String _supportEmail = "apomcrm@gmail.com";
+  static const String _supportPhone = "+919019814347";
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _loginRepository = LoginRepository();
@@ -97,6 +100,45 @@ class _LoginScreenState extends State<LoginScreen>
       setState(() => _isLoading = false);
       CustomSnackBar.show(context, "An error occurred: $e");
     }
+  }
+
+  Future<void> _launchSupport(Uri uri, String fallback) async {
+    bool opened = false;
+    try {
+      opened = await launchUrl(uri);
+    } catch (_) {}
+    if (!opened && mounted) {
+      CustomSnackBar.show(context, fallback);
+    }
+  }
+
+  Widget _supportLink({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: AppColors.primaryGreen),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: AppColors.primaryGreen,
+                fontSize: AppSize.width * 0.034,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -250,7 +292,7 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildLogoCard() {
     return Center(
       child: Image.asset(
-        "assets/images/f_logo.png",
+        "assets/images/apom_farmer_c.png",
         height: 220,
         width: 200,
         fit: BoxFit.contain,
@@ -628,26 +670,45 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ),
             ),
-            // Text(
-            //   " & ",
-            //   style: TextStyle(
-            //     color: AppColors.textSecondary,
-            //     fontSize: AppSize.width * 0.032,
-            //   ),
-            // ),
-            // GestureDetector(
-            //   onTap: () {},
-            //   child: Text(
-            //     "Privacy Policy",
-            //     style: TextStyle(
-            //       color: AppColors.primaryGreen,
-            //       fontSize: AppSize.width * 0.032,
-            //       fontWeight: FontWeight.w600,
-            //       decoration: TextDecoration.underline,
-            //       decorationColor: AppColors.primaryGreen.withOpacity(0.4),
-            //     ),
-            //   ),
-            // ),
+          ],
+        ),
+
+        SizedBox(height: AppSize.height * 0.02),
+        Text(
+          "Need help?",
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: AppSize.width * 0.032,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _supportLink(
+              icon: Icons.mail_outline_rounded,
+              label: "Email us",
+              onTap: () => _launchSupport(
+                Uri.parse(
+                  'mailto:$_supportEmail?subject=${Uri.encodeComponent("APOM Support Request")}',
+                ),
+                "Email us at $_supportEmail",
+              ),
+            ),
+            Container(
+              width: 1,
+              height: 16,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              color: AppColors.divider.withOpacity(0.6),
+            ),
+            _supportLink(
+              icon: Icons.call_outlined,
+              label: "Call us",
+              onTap: () => _launchSupport(
+                Uri(scheme: 'tel', path: _supportPhone),
+                "Call us at $_supportPhone",
+              ),
+            ),
           ],
         ),
       ],

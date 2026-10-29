@@ -246,6 +246,12 @@ class _FarmerPhotoUploadScreenState extends State<FarmerPhotoUploadScreen>
       CustomSnackBar.error(context, "Please enter your full name");
       return;
     }
+
+    if (_nameController.text.trim().length < 4) {
+      CustomSnackBar.error(context, "Your name is too short. Please enter your full name");
+      return;
+    }
+
     // if (_aadharController.text.trim().length != 12) {
     //   CustomSnackBar.error(context, "Please enter a valid 12-digit Aadhar number");
     //   return;
@@ -549,7 +555,7 @@ class _FarmerPhotoUploadScreenState extends State<FarmerPhotoUploadScreen>
                           CustomTextField(
                             label: "Full Name",
                             hintText: "Enter your full name",
-                            prefixIcon: Icons.person_outline_rounded,
+                            prefixIcon: Icons.person_outline_rounded,                            
                             controller: _nameController,
                             validator: (v) {
                               if (v == null || v.trim().isEmpty) return 'Required';
@@ -559,21 +565,21 @@ class _FarmerPhotoUploadScreenState extends State<FarmerPhotoUploadScreen>
 
                           const SizedBox(height: 24),
 
-                          // CustomTextField(
-                          //   label: "Aadhar Number",
-                          //   hintText: "Enter 12-digit Aadhar number",
-                          //   prefixIcon: Icons.badge_outlined,
-                          //   controller: _aadharController,
-                          //   keyboardType: TextInputType.number,
-                          //   maxLength: 12,
-                          //   validator: (v) {
-                          //     if (v == null || v.trim().isEmpty) return 'Required';
-                          //     if (v.trim().length != 12) return '12 digits required';
-                          //     return null;
-                          //   },
-                          // ),
+                          CustomTextField(
+                            label: "Aadhar Number",
+                            hintText: "Enter 12-digit Aadhar number",
+                            prefixIcon: Icons.badge_outlined,
+                            controller: _aadharController,
+                            keyboardType: TextInputType.number,
+                            maxLength: 12,
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) return 'Required';
+                              if (v.trim().length != 12) return '12 digits required';
+                              return null;
+                            },
+                          ),
 
-                          // const SizedBox(height: 24),
+                          const SizedBox(height: 24),
 
                           // CustomTextField(
                           //   label: "Farm Name",
@@ -725,15 +731,15 @@ class _PickerOptionsSheet extends StatelessWidget {
           const SizedBox(height: 28),
           Row(
             children: [
-              Expanded(
-                child: _OptionTile(
-                  icon: Icons.photo_library_rounded,
-                  label: "Gallery",
-                  color: AppColors.farmerColor,
-                  onTap: onGallery,
-                ),
-              ),
-              const SizedBox(width: 14),
+              // Expanded(
+              //   child: _OptionTile(
+              //     icon: Icons.photo_library_rounded,
+              //     label: "Gallery",
+              //     color: AppColors.farmerColor,
+              //     onTap: onGallery,
+              //   ),
+              // ),
+              // const SizedBox(width: 14),
               Expanded(
                 child: _OptionTile(
                   icon: Icons.camera_alt_rounded,

@@ -21,18 +21,22 @@ class LandRepository {
   }
 
   Future<void> createLandPartition({
-    required String cropName,
+    required int productId,
     required double areaValue,
     required String areaUnit,
+    double? expectedYieldValue,
+    String expectedYieldUnit = 'kg',
     required DateTime plantationDate,
     required DateTime harvestingDate,
     required String status,
   }) async {
     final url = ApiConfig.getLandpartitionCreateUrl();
     final payload = <String, dynamic>{
-      'crop_name': cropName,
+      'product_id': productId,
       'area_value': areaValue,
       'area_unit': areaUnit,
+      'expected_yield_value': expectedYieldValue,
+      'expected_yield_unit': expectedYieldUnit,
       'plantation_date': plantationDate.toIso8601String().split('T')[0],
       'harvesting_date': harvestingDate.toIso8601String().split('T')[0],
       'status': status,
@@ -52,18 +56,22 @@ class LandRepository {
 
   Future<void> updateLandPartition({
     required int segmentId,
-    required String cropName,
+    required int productId,
     required double areaValue,
     required String areaUnit,
+    double? expectedYieldValue,
+    String expectedYieldUnit = 'kg',
     required DateTime plantationDate,
     required DateTime harvestingDate,
     required String status,
   }) async {
     final url = ApiConfig.getLandpartitionUpdateUrl(segmentId);
     final payload = <String, dynamic>{
-      'crop_name': cropName,
+      'product_id': productId,
       'area_value': areaValue,
       'area_unit': areaUnit,
+      'expected_yield_value': expectedYieldValue,
+      'expected_yield_unit': expectedYieldUnit,
       'plantation_date': plantationDate.toIso8601String().split('T')[0],
       'harvesting_date': harvestingDate.toIso8601String().split('T')[0],
       'status': status,
@@ -75,6 +83,33 @@ class LandRepository {
       throw Exception(
         "Failed to update land partition (${response.statusCode}): ${response.body}",
       );
+    }
+  }
+
+  // Updates the farmer's total land. Fallow land is recomputed
+  // automatically on the backend; shrinking below the currently
+  // cultivated area is rejected there with a clear error message.
+  Future<void> updateTotalLand({
+    required double totalLand,
+    required String landUnit,
+  }) async {
+    final url = ApiConfig.getEditprofilelUrl();
+    final payload = <String, dynamic>{
+      'total_land': totalLand,
+      'land_unit': landUnit,
+    };
+
+    final response = await AuthClient.putWithAuth(url, jsonEncode(payload));
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      String message = 'Failed to update total land (${response.statusCode})';
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['message'] != null) {
+          message = decoded['message'].toString();
+        }
+      } catch (_) {}
+      throw Exception(message);
     }
   }
 

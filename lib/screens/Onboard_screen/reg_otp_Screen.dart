@@ -3,6 +3,7 @@ import 'package:client/screens/Onboard_screen/farmer_photo_upload.dart';
 import 'package:client/screens/Farmer/farmer_bottom_nav_bar.dart';
 import 'package:client/global/colortheme.dart';
 import 'package:client/repository/welcome_repository.dart';
+import 'package:client/screens/Onboard_screen/account_deactivated_screen.dart';
 import 'package:client/screens/Onboard_screen/login.dart';
 import 'package:client/widgets/custom_snackbar.dart';
 import 'package:flutter/material.dart';
@@ -146,10 +147,22 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
         }
       } else {
         setState(() => _isLoading = false);
-        CustomSnackBar.show(
-          context,
-          response['message'] ?? "OTP Verification Failed",
-        );
+        if (response['account_deactivated'] == true) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AccountDeactivatedScreen(
+                message: response['message'] ??
+                    "Your account has been deactivated. Access is restricted. Please contact administrator.",
+              ),
+            ),
+          );
+        } else {
+          CustomSnackBar.show(
+            context,
+            response['message'] ?? "OTP Verification Failed",
+          );
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -190,7 +203,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: Image.asset(
-                  "assets/images/f_logo.png",
+                  "assets/images/apom_farmer_c.png",
                   height: 240,
                   width: 220,
                   fit: BoxFit.contain,

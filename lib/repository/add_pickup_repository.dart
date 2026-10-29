@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:client/config/api_config.dart';
 import 'package:client/models/crop_catogory_model.dart';
@@ -29,6 +30,7 @@ class AddPickupRepository {
     required DateTime harvestDate,
     required List<File> photos,
     String? remarks,
+    List<Map<String, dynamic>>? items,
   }) async {
     final url = ApiConfig.getAddpickupUrl();
     final accessToken = await TokenStorage.getToken();
@@ -39,6 +41,9 @@ class AddPickupRepository {
       request.headers['Authorization'] = 'Bearer $accessToken';
     }
 
+    if (items != null && items.isNotEmpty) {
+      request.fields['items'] = jsonEncode(items);
+    }
     request.fields['product_id'] = productId.toString();
     request.fields['quantity_kg'] = quantity.toString();
     request.fields['expected_price_per_kg'] = expectedPrice.toString();
@@ -63,6 +68,9 @@ class AddPickupRepository {
 
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
+
+    final subscriptionError = AuthClient.subscriptionErrorFrom(response);
+    if (subscriptionError != null) throw subscriptionError;
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception(

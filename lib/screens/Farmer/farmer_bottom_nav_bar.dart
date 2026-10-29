@@ -1,11 +1,13 @@
 import 'package:client/screens/Farmer/add_Pickup.dart';
 import 'package:client/screens/Farmer/orders_screen.dart';
 import 'package:client/screens/Farmer/profile_screen.dart';
+import 'package:client/screens/Farmer/subscription_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:animated_bottom_navigation_bar/animated_bottom_navigation_bar.dart';
 import 'package:client/screens/Farmer/home.dart';
 import 'package:client/global/colortheme.dart';
 import 'package:client/screens/Farmer/Land_Screen.dart';
+import 'package:flutter/services.dart';
 
 class FarmerBottomNav extends StatefulWidget {
   final List<Map<String, dynamic>> initialLandPartitions;
@@ -36,17 +38,6 @@ class _FarmerBottomNavState extends State<FarmerBottomNav> {
 
   // LABELS
   final List<String> labels = ["Home", "Land", "Orders", "Profile"];
-
-  Future<bool> _onBackPressed() async {
-    if (_currentIndex != 0) {
-      setState(() {
-        _currentIndex = 0;
-      });
-      return false;
-    }
-
-    return true; // close app from Home
-  }
 
   Future<bool> _showExitDialog() async {
     return await showDialog<bool>(
@@ -79,31 +70,31 @@ class _FarmerBottomNavState extends State<FarmerBottomNav> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      FarmerHomeScreen(),
+      const SubscriptionGate(child: FarmerHomeScreen()),
       LandManageScreen(
         initialParcels: widget.initialLandPartitions,
         totalLand: widget.totalLand,
         landUnit: widget.landUnit,
       ),
-      MyOrdersScreen(),
+      const SubscriptionGate(child: MyOrdersScreen()),
       FarmerProfileScreen(),
     ];
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+
+        // Not on Home tab → go back to Home tab
         if (_currentIndex != 0) {
-          setState(() {
-            _currentIndex = 0;
-          });
+          setState(() => _currentIndex = 0);
           return;
         }
 
-        // Home screen → show exit confirmation
-        bool shouldExit = await _showExitDialog();
-
-        if (shouldExit) {
-          Navigator.of(context).pop(); // exits app
+        // On Home tab → confirm exit
+        final shouldExit = await _showExitDialog();
+        if (shouldExit && mounted) {
+          SystemNavigator.pop(); // closes the app without re-triggering PopScope
         }
       },
       child: Scaffold(
@@ -138,7 +129,10 @@ class _FarmerBottomNavState extends State<FarmerBottomNav> {
               setState(() {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => AddCropScreen()),
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        const SubscriptionGate(child: AddCropScreen()),
+                  ),
                 );
               });
             },

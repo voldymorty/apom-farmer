@@ -1,6 +1,8 @@
 class ApiConfig {
   // Base URL for the API
-  static const String baseUrl = 'http://172.16.0.227:5000/api';
+  static const String baseUrl = 'http://192.168.1.144:5000/api';
+  // static const String baseUrl = 'https://apomapi.freshmindz.in/api';
+  // static const String baseUrl = 'https://api.apom.in/api';
 
   // Auth endpoints
   static const String authLogin = '/auth/send-otp';
@@ -95,6 +97,19 @@ class ApiConfig {
   static String getAuthLogoutUrl() => '$baseUrl$authLogout';   
   static String getAccountInactiveUrl() => '$baseUrl$accountinactive';
 
+  // Farmer Subscription
+  static const String subscriptionPlans = '/farmer/subscriptions/plans';
+  static const String subscriptionStatus = '/farmer/subscriptions/status';
+  static const String subscriptionInitiate = '/farmer/subscriptions/initiate';
+  static const String subscriptionVerify = '/farmer/subscriptions/verify';
+  static const String subscriptionFailure = '/farmer/subscriptions/failure';
+
+  static String getSubscriptionPlansUrl() => '$baseUrl$subscriptionPlans';
+  static String getSubscriptionStatusUrl() => '$baseUrl$subscriptionStatus';
+  static String getSubscriptionInitiateUrl() => '$baseUrl$subscriptionInitiate';
+  static String getSubscriptionVerifyUrl() => '$baseUrl$subscriptionVerify';
+  static String getSubscriptionFailureUrl() => '$baseUrl$subscriptionFailure';
+
   // Notifications
   static const String notifications = '/farmer/notifications';
   static const String unreadCount = '/farmer/notifications/unread-count';
@@ -106,5 +121,14 @@ class ApiConfig {
   static String getMarkReadUrl(int id) => '$baseUrl$notifications/$id/read';
   static String getMarkAllReadUrl() => '$baseUrl$notifications/read-all';
   static String getUpdateFcmTokenUrl() => '$baseUrl$fcmToken';
+
+  static String buildDocumentUrl(String endpointPath) {
+    if (endpointPath.startsWith('http://') || endpointPath.startsWith('https://')) {
+      return endpointPath;
+    }
+    final root = baseUrl.endsWith('/api') ? baseUrl.substring(0, baseUrl.length - 4) : baseUrl;
+    final path = endpointPath.startsWith('/') ? endpointPath : '/$endpointPath';
+    return '$root$path';
+  }
 }
 

@@ -1,6 +1,9 @@
 import 'package:client/global/colortheme.dart';
 import 'package:client/models/orders_model.dart';
 import 'package:client/repository/orders_repository.dart';
+import 'package:client/screens/Farmer/subscription_plan_screen.dart';
+import 'package:client/utils/subscription_exception.dart';
+import 'package:client/utils/subscription_error_handling.dart';
 import 'package:client/widgets/custom_app_bar.dart';
 import 'package:client/widgets/order_card.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +22,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   final OrdersRepository _repo = OrdersRepository();
   bool _isLoading = true;
   String? _error;
+  SubscriptionRequiredException? _subscriptionError;
   List<Datum> _allOrders = [];
   List<Datum> _orders = [];
 
@@ -36,42 +40,24 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _subscriptionError = null;
     });
 
     try {
-      final model = await _repo.getOrders(status: status);
-      if (!mounted) return;
-
-      if (status == null) {
+      if (status != null && _allOrders.isNotEmpty) {
         setState(() {
-          _allOrders = model.data;
-          _orders = _applyFilter(_allOrders, _selectedStatus);
-          _isLoading = false;
-        });
-        return;
-      }
-
-      if (model.data.isNotEmpty) {
-        setState(() {
-          _orders = model.data;
-          _isLoading = false;
-        });
-        return;
-      }
-
-      if (_allOrders.isEmpty) {
-        final allModel = await _repo.getOrders();
-        if (!mounted) return;
-        setState(() {
-          _allOrders = allModel.data;
           _orders = _applyFilter(_allOrders, status);
           _isLoading = false;
         });
         return;
       }
 
+      final model = await _repo.getOrders();
+      if (!mounted) return;
+
       setState(() {
-        _orders = _applyFilter(_allOrders, status);
+        _allOrders = model.data;
+        _orders = _applyFilter(_allOrders, status ?? _selectedStatus);
         _isLoading = false;
       });
     } catch (e) {
@@ -79,6 +65,8 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
       setState(() {
         if (status != null && _allOrders.isNotEmpty) {
           _orders = _applyFilter(_allOrders, status);
+        } else if (e is SubscriptionRequiredException) {
+          _subscriptionError = e;
         } else {
           _error = e.toString();
         }
@@ -114,29 +102,35 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   }
 
   List<Datum> _applyFilter(List<Datum> source, String? status) {
-    final normalized = _normalizeStatus(status);
-    if (normalized.isEmpty || normalized == 'all') return source;
-    return source
-        .where(
-          (order) {
-            final orderStatus = _normalizeStatus(order.status);
-            if (normalized == 'pickup assigned') {
-              return orderStatus == 'pickup assigned' ||
-                  orderStatus.contains('pickup assigned') ||
-                  (orderStatus.contains('pickup') &&
-                      orderStatus.contains('assigned'));
-            }
-            if (normalized == 'picked up') {
-              return orderStatus == 'picked up' ||
-                  orderStatus == 'pickup' ||
-                  orderStatus.contains('picked up') ||
-                  (orderStatus.contains('pickup') &&
-                      !orderStatus.contains('assigned'));
-            }
-            return orderStatus == normalized;
-          },
-        )
-        .toList();
+    if (status == null || status.trim().isEmpty || status.trim().toLowerCase() == 'all') {
+      return source;
+    }
+    final target = status.trim().toLowerCase();
+    return source.where((order) {
+      final eff = order.effectiveStatus.toLowerCase();
+      if (target == 'requested' || target == 'available') {
+        return eff == 'requested' || eff == 'available';
+      }
+      if (target == 'pickup_assigned') {
+        return eff == 'pickup_assigned' || eff == 'in_transit' || eff == 'driver_arrived';
+      }
+      if (target == 'picked_up') {
+        return eff == 'picked_up';
+      }
+      if (target == 'in_holding') {
+        return eff == 'in_holding';
+      }
+      if (target == 'stock_released') {
+        return eff == 'stock_released';
+      }
+      if (target == 'payment_settled' || target == 'paid') {
+        return eff == 'payment_settled';
+      }
+      if (target == 'cancelled') {
+        return eff == 'cancelled';
+      }
+      return eff == target || _normalizeStatus(order.status) == _normalizeStatus(target);
+    }).toList();
   }
 
   bool _isAvailable(Datum order) {
@@ -433,6 +427,27 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
       _loadOrders(status: _selectedStatus);
     } catch (e) {
       if (!mounted) return;
+      if (e is SubscriptionRequiredException) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e.isExpired
+                  ? "Your subscription has expired. Renew to edit listings."
+                  : "An active subscription is required to edit listings.",
+            ),
+            action: SnackBarAction(
+              label: "View Plans",
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SubscriptionPlanScreen(),
+                ),
+              ),
+            ),
+          ),
+        );
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
@@ -441,9 +456,12 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
 
   List<Map<String, String?>> get _statusFilters => [
     {"label": "All", "status": null},
-    {"label": "Available", "status": "available"},
+    {"label": "Requested", "status": "requested"},
     {"label": "Pickup Assigned", "status": "pickup_assigned"},
     {"label": "Picked Up", "status": "picked_up"},
+    {"label": "In Holding", "status": "in_holding"},
+    {"label": "Stock Released", "status": "stock_released"},
+    {"label": "Payment Settled", "status": "payment_settled"},
     {"label": "Cancelled", "status": "cancelled"},
   ];
 
@@ -453,7 +471,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
       backgroundColor: AppColors.loginBackground,
       appBar: CustomAppBar(
         showBackButton: false,
-        title: "My Products",
+        title: "My Pickup Orders",
         backgroundColor: AppColors.farmerColor,
         elevation: 0,
 
@@ -518,6 +536,12 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                         color: AppColors.farmerColor,
                       ),
                     )
+                    : _subscriptionError != null
+                    ? buildApiErrorView(
+                      context,
+                      error: _subscriptionError!,
+                      onRetry: () => _loadOrders(status: _selectedStatus),
+                    )
                     : _error != null
                     ? Center(
                       child: Padding(
@@ -539,37 +563,50 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                       ),
                     )
                     : _orders.isEmpty
-                    ? const _EmptyOrdersView()
-                    : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _orders.length,
-                      itemBuilder: (context, index) {
-                        final order = _orders[index];
-                        final unit =
-                            order.product.unit.trim().isEmpty
-                                ? 'KG'
-                                : order.product.unit;
-                        return OrderCard(
-                          photoUrl: _resolvePhotoUrl(order),
-                          status: order.status,
-                          orderId: '#CROP-${order.cropId}',
-                          cropId: order.cropId,
-                          cropName:
-                              order.product.productName.trim().isEmpty
-                                  ? 'Crop'
-                                  : order.product.productName,
-                          quantity: '${order.quantityKg} $unit',
-                          expectedPrice:
-                              '₹ ${order.expectedPricePerKg} / $unit',
-                          pickupTime: _formatDate(order.harvestDate),
-                          updatedTime: _formatUpdated(order.updatedAt),
-                          showEditDelete: _isAvailable(order),
-                          onEdit:
-                              _isAvailable(order) ? () => _editOrder(order) : null,
-                          onDelete:
-                              _isAvailable(order) ? () => _deleteOrder(order) : null,
-                        );
-                      },
+                    ? RefreshIndicator(
+                      onRefresh: _refreshOrders,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: const [
+                          SizedBox(height: 150),
+                          _EmptyOrdersView(),
+                        ],
+                      ),
+                    )
+                    : RefreshIndicator(
+                      onRefresh: _refreshOrders,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _orders.length,
+                        itemBuilder: (context, index) {
+                          final order = _orders[index];
+                          final unit =
+                              order.product.unit.trim().isEmpty
+                                  ? 'KG'
+                                  : order.product.unit;
+                          return OrderCard(
+                            photoUrl: _resolvePhotoUrl(order),
+                            status: order.effectiveStatusLabel,
+                            orderId: '#CROP-${order.cropId}',
+                            cropId: order.cropId,
+                            cropName:
+                                order.product.productName.trim().isEmpty
+                                    ? 'Crop'
+                                    : order.product.productName,
+                            quantity: '${order.quantityKg} $unit',
+                            expectedPrice:
+                                '₹ ${order.expectedPricePerKg} / $unit',
+                            pickupTime: _formatDate(order.harvestDate),
+                            updatedTime: _formatUpdated(order.updatedAt),
+                            // showEditDelete: _isAvailable(order),
+                            // onEdit:
+                            //     _isAvailable(order) ? () => _editOrder(order) : null,
+                            // onDelete:
+                            //     _isAvailable(order) ? () => _deleteOrder(order) : null,
+                            items: order.items,
+                          );
+                        },
+                      ),
                     ),
           ),
         ],
